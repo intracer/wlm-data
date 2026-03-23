@@ -60,8 +60,4 @@ object PopulatedPlaceSpec {
     "UA85" -> "Sevastopol"
   ).map(AdmName.tupled).toSet
 
-  val KyivAndSevastopol = Map("UA80" -> "Kyiv", "UA85" -> "Sevastopol").map(AdmName.tupled).toSet
-
-  val adm1NamesWithoutKyivAndSevastopol  = adm1Names -- KyivAndSevastopol
-
 }

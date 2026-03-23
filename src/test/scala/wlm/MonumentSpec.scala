@@ -26,7 +26,7 @@ class MonumentSpec extends AnyFlatSpec with Matchers with SharedSparkContext {
 
   "numberOfMonumentsByAdm" should "descending counts for all adm1 regions with some range checks" in {
     val rows = monumentRepo.numberOfMonumentsByAdm(AdmLevel.ADM1).collect()
-    rows.map(_.adm).toSet shouldBe PopulatedPlaceSpec.adm1NamesWithoutKyivAndSevastopol // TODO fix
+    rows.map(_.adm).toSet shouldBe wlm.PopulatedPlaceSpec.adm1Names
     val counts = rows.map(_.count).toSeq
     counts.reverse shouldBe sorted
     all(counts) should be > 500L
@@ -37,7 +37,7 @@ class MonumentSpec extends AnyFlatSpec with Matchers with SharedSparkContext {
   "numberOfPicturedMonumentsByAdm" should "descending counts for all adm1 regions with some range checks" in {
 
     val rows = monumentRepo.numberOfPicturedMonumentsByAdm(AdmLevel.ADM1).collect()
-    rows.map(_.adm).toSet shouldBe PopulatedPlaceSpec.adm1NamesWithoutKyivAndSevastopol // TODO fix
+    rows.map(_.adm).toSet shouldBe wlm.PopulatedPlaceSpec.adm1Names
     val counts = rows.map(_.count).toSeq
     counts.reverse shouldBe sorted
     all(counts) should be > 400L

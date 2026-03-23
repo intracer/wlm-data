@@ -43,7 +43,12 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
 
     val adm2koatuuColumn = concat(
       substring(col("id"), 1, 2),
-      substring(col("id"), 4, 3),
+      when(
+        substring(col("id"), 1, 2) isInCollection Seq("80", "85"), // Special cases for Kyiv and Sevastopol
+        "000"
+      ).otherwise(
+          substring(col("id"), 4, 3)
+        ),
       lit("00000")
     )
 
@@ -71,7 +76,8 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
 
   def joinedWithKatotth(): Dataset[Monument] = {
     val monuments = cleanDataset()
-    val uniqueByPrefix = katotthKoatuuRepo.uniqueNameByAdm2()
+    val uniqueByPrefix = katotthKoatuuRepo
+      .uniqueNameByAdm2()
       .withColumnRenamed("name", "municipality_name")
       .drop("koatuu", "category")
 
@@ -82,7 +88,8 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
       )
       .drop("koatuuPrefix", "municipality", "adm2", "adm4", "municipality_name")
       .join(
-        populatedPlaceRepo.admNames(AdmLevel.ADM4)
+        populatedPlaceRepo
+          .admNames(AdmLevel.ADM4)
           .withColumnRenamed("name", "municipality_name"),
         substring(col("katotth"), 1, 12) === col("code")
       )

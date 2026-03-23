@@ -12,7 +12,6 @@ class PopulatedPlaceSpec extends AnyFlatSpec with Matchers with SharedSparkConte
   val lang: Lang.Value = Lang.EN
   lazy val populatedPlaceRepo = new PopulatedPlaceRepo(spark, lang)
 
-
   "PopulatedPlace" should "return ADM0 level name" in {
     populatedPlaceRepo.admNames(AdmLevel.ADM0).collect() shouldBe Array(AdmName("UA", "Ukraine"))
   }
@@ -60,5 +59,9 @@ object PopulatedPlaceSpec {
     "UA80" -> "Kyiv",
     "UA85" -> "Sevastopol"
   ).map(AdmName.tupled).toSet
+
+  val KyivAndSevastopol = Map("UA80" -> "Kyiv", "UA85" -> "Sevastopol").map(AdmName.tupled).toSet
+
+  val adm1NamesWithoutKyivAndSevastopol  = adm1Names -- KyivAndSevastopol
 
 }

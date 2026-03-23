@@ -4,23 +4,27 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
 
 object Main extends App {
-  implicit val spark: SparkSession = SparkSession.builder()
+  val spark: SparkSession = SparkSession
+    .builder()
     .appName("Spark App")
     .config("spark.master", "local")
     .getOrCreate()
-  implicit val lang: Lang.Value = Lang.EN
+  val lang: Lang.Value = Lang.EN
 
-  Monument
+  val monumentRepo = new MonumentRepo(spark, lang)
+  val populatedPlace = monumentRepo.populatedPlaceRepo
+
+  monumentRepo
     .percentageOfPicturedMonumentsByAdm1()
     .show(30, truncate = false)
 
-  Monument.
-    percentageOfPicturedMonumentsByAdm1()
+  monumentRepo
+    .percentageOfPicturedMonumentsByAdm1()
     .show(30, truncate = false)
 
   sys.exit()
 
-  val ukrainePopulatedPlaceDs = PopulatedPlace.dataset(spark)
+  val ukrainePopulatedPlaceDs = populatedPlace.dataset()
 
   val katotthKoatuuDs = spark.read
     .option("header", "true")
@@ -43,8 +47,7 @@ object Main extends App {
     .orderBy(col("count").desc)
   // .show()
 
-
-  val monumentsDs = Monument.cleanDataset(spark)
+  val monumentsDs = monumentRepo.cleanDataset()
   //  monumentsDs.show()
 
   monumentsDs
@@ -56,6 +59,5 @@ object Main extends App {
     .count()
     .orderBy(col("count").desc)
   //  .show(20, truncate = false)
-
 
 }

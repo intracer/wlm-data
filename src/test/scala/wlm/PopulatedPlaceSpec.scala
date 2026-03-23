@@ -8,15 +8,17 @@ import wlm.PopulatedPlaceSpec.adm1Names
 
 class PopulatedPlaceSpec extends AnyFlatSpec with Matchers with SharedSparkContext {
 
-  implicit lazy val spark: SparkSession = SparkSession.builder.config(sc.getConf).getOrCreate()
-  implicit val lang: Lang.Value = Lang.EN
+  lazy val spark: SparkSession = SparkSession.builder.config(sc.getConf).getOrCreate()
+  val lang: Lang.Value = Lang.EN
+  lazy val populatedPlaceRepo = new PopulatedPlaceRepo(spark, lang)
+
 
   "PopulatedPlace" should "return ADM0 level name" in {
-    PopulatedPlace.admNames(AdmLevel.ADM0).collect() shouldBe Array(AdmName("UA", "Ukraine"))
+    populatedPlaceRepo.admNames(AdmLevel.ADM0).collect() shouldBe Array(AdmName("UA", "Ukraine"))
   }
 
   it should "return ADM1 level names" in {
-    val adm1 = PopulatedPlace.admNames(AdmLevel.ADM1).collect().toSet
+    val adm1 = populatedPlaceRepo.admNames(AdmLevel.ADM1).collect().toSet
     adm1.size shouldBe 27
     adm1 shouldBe adm1Names
   }

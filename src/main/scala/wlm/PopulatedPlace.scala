@@ -23,18 +23,18 @@ object Lang extends Enumeration {
   val EN, UK = Value
 }
 
-object PopulatedPlace {
+class PopulatedPlaceRepo(spark: SparkSession, lang: Lang.Value) {
+  import spark.implicits._
 
-  def populatedPlacesDf(spark: SparkSession): DataFrame = spark.read
+  def populatedPlacesDf(): DataFrame = spark.read
     .option("header", "true")
     .csv("data/humdata/ukraine-populated-places.csv")
 
-  def admNames(admLevel: AdmLevel.Value)(implicit spark: SparkSession, lang: Lang.Value): Dataset[AdmName] = {
-    import spark.implicits._
-    admNames(populatedPlacesDf(spark), admLevel).as[AdmName]
+  def admNames(admLevel: AdmLevel.Value): Dataset[AdmName] = {
+    admNames(populatedPlacesDf(), admLevel).as[AdmName]
   }
 
-  def admNames(df: DataFrame, admLevel: AdmLevel.Value)(implicit lang: Lang.Value): Dataset[Row] = {
+  def admNames(df: DataFrame, admLevel: AdmLevel.Value): Dataset[Row] = {
     df
       .select(
         col(s"${admLevel}_PCODE").as("code"),
@@ -44,8 +44,7 @@ object PopulatedPlace {
       .orderBy(col("code"))
   }
 
-  def dataset(implicit spark: SparkSession): Dataset[PopulatedPlace] = {
-    import spark.implicits._
-    populatedPlacesDf(spark).as[PopulatedPlace]
+  def dataset(): Dataset[PopulatedPlace] = {
+    populatedPlacesDf().as[PopulatedPlace]
   }
 }

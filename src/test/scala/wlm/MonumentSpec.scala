@@ -7,8 +7,9 @@ import org.scalatest.matchers.should.Matchers
 
 class MonumentSpec extends AnyFlatSpec with Matchers with SharedSparkContext {
 
-  implicit lazy val spark: SparkSession = SparkSession.builder.config(sc.getConf).getOrCreate()
-  implicit val lang: Lang.Value = Lang.EN
+  val lang: Lang.Value = Lang.EN
+  lazy val spark: SparkSession = SparkSession.builder.config(sc.getConf).getOrCreate()
+  lazy val monumentRepo = new MonumentRepo(spark, lang)
 
   "cleanMunicipality" should "clean wiki link [[x]] into x" in {
     Monument.cleanMunicipality("[[Kyiv]]") shouldBe "Kyiv"
@@ -19,18 +20,18 @@ class MonumentSpec extends AnyFlatSpec with Matchers with SharedSparkContext {
   }
 
   "monumentsWithUnmappedKoatuu" should "not be empty" in {
-    val monumentsWithUnmappedKoatuu = Monument.monumentsWithUnmappedKoatuu(spark)
+    val monumentsWithUnmappedKoatuu = monumentRepo.monumentsWithUnmappedKoatuu()
     monumentsWithUnmappedKoatuu.groupBy("adm1", "adm2").count().collect().toSeq should not be Nil
   }
 
   "cleanedDataset" should "include adm1 and adm2 katotth codes" ignore {
-    val cleanMonument = Monument.cleanDataset(spark).filter(_.id.startsWith("01-204")).limit(1).collect().head
+    val cleanMonument = monumentRepo.cleanDataset().filter(_.id.startsWith("01-204")).limit(1).collect().head
     cleanMonument.adm1 shouldBe "UA01"
     cleanMonument.adm2 shouldBe "UA0102"
   }
 
   "numberOfMonumentsByAdm" should "descending counts for all adm1 regions with some range checks" in {
-    val rows = Monument.numberOfMonumentsByAdm.collect()
+    val rows = monumentRepo.numberOfMonumentsByAdm().collect()
     rows.map(_.adm).toSet shouldBe PopulatedPlaceSpec.adm1Names
     val counts = rows.map(_.count).toSeq
     counts.reverse shouldBe sorted
@@ -41,7 +42,7 @@ class MonumentSpec extends AnyFlatSpec with Matchers with SharedSparkContext {
 
   "numberOfPicturedMonumentsByAdm" should "descending counts for all adm1 regions with some range checks" in {
 
-    val rows = Monument.numberOfPicturedMonumentsByAdm().collect()
+    val rows = monumentRepo.numberOfPicturedMonumentsByAdm().collect()
     rows.map(_.adm).toSet shouldBe PopulatedPlaceSpec.adm1Names
     val counts = rows.map(_.count).toSeq
     counts.reverse shouldBe sorted
@@ -57,12 +58,12 @@ class MonumentSpec extends AnyFlatSpec with Matchers with SharedSparkContext {
         .groupBy(_.adm)
         .mapValues(_.head)
 
-    val ds = Monument.percentageOfPicturedMonumentsByAdm1()
+    val ds = monumentRepo.percentageOfPicturedMonumentsByAdm1()
     ds.collect().toSeq.map(_.percentage).reverse shouldBe sorted
 
     val percentagesMap: Map[AdmName, PercentagePerAdm] = groupByAdm(ds)
-    val picturedMap: Map[AdmName, Long] = groupByAdm(Monument.numberOfPicturedMonumentsByAdm()).mapValues(_.count)
-    val totalMap: Map[AdmName, Long] = groupByAdm(Monument.numberOfMonumentsByAdm).mapValues(_.count)
+    val picturedMap: Map[AdmName, Long] = groupByAdm(monumentRepo.numberOfPicturedMonumentsByAdm()).mapValues(_.count)
+    val totalMap: Map[AdmName, Long] = groupByAdm(monumentRepo.numberOfMonumentsByAdm()).mapValues(_.count)
     val tolerance: Double = 0.01
 
     percentagesMap.keySet shouldBe PopulatedPlaceSpec.adm1Names

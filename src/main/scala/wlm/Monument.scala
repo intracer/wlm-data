@@ -21,16 +21,20 @@ trait HasAdm {
 case class CountPerAdm(adm: AdmName, count: Long) extends HasAdm
 case class PercentagePerAdm(adm: AdmName, all: Long, part: Long, percentage: Double) extends HasAdm
 
-object Monument {
+class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
+  import spark.implicits._
 
-  def dataframe(spark: SparkSession): DataFrame = {
+  lazy val populatedPlaceRepo = new PopulatedPlaceRepo(spark, lang)
+  lazy val katotthKoatuuRepo = new KatotthKoatuuRepo(spark)
+
+  def dataframe(): DataFrame = {
     spark.read
       .option("header", "true")
       .csv("data/wiki/monuments/wlm-ua-monuments.csv")
       .drop("adm2")
   }
 
-  def withKoatuuFromId(spark: SparkSession): DataFrame = {
+  def withKoatuuFromId(): DataFrame = {
     val adm1Column = concat(
       lit("UA"),
       substring(col("id"), 1, 2)
@@ -42,7 +46,7 @@ object Monument {
       lit("00000")
     )
 
-    dataframe(spark)
+    dataframe()
     //.filter(col("municipality").isNotNull)
       .withColumns(
         Map(
@@ -51,42 +55,46 @@ object Monument {
         ))
   }
 
-  def monumentsWithUnmappedKoatuu(spark: SparkSession): Dataset[Monument] = {
-    import spark.implicits._
-    val katotthKoatuuDf = KatotthKoatuu
-      .dataframe(spark)
+  def monumentsWithUnmappedKoatuu(): Dataset[Monument] = {
+    val katotthKoatuuDf = katotthKoatuuRepo
+      .dataframe()
       .drop("category", "name")
 
-    withKoatuuFromId(spark)
+    withKoatuuFromId()
       .join(katotthKoatuuDf, col("adm2koatuu") === col("koatuu"), "left_outer")
       .filter(col("koatuu").isNull)
       .withColumnRenamed("adm2koatuu", "adm2")
       .as[Monument]
   }
 
-  def cleanDataset(spark: SparkSession): Dataset[Monument] = {
+  def joinWithKatotth(): DataFrame = {
+    val monuments = cleanDataset().toDF()
+    val uniqueByPrefix = katotthKoatuuRepo.uniqueNameByAdm2()
+
+    monuments
+      .join(
+        uniqueByPrefix,
+        substring(col("adm2"), 1, 5) === col("koatuuPrefix") && col("municipality") === col("name")
+      )
+      .drop("koatuuPrefix")
+  }
+
+  def cleanDataset(): Dataset[Monument] = {
     import spark.implicits._
 
-    val katotthKoatuuDf = KatotthKoatuu
-      .dataframe(spark)
-      .drop("category", "name")
-
-    withKoatuuFromId(spark)
+    withKoatuuFromId()
       .withColumnRenamed("adm2koatuu", "adm2")
-//      .join(katotthKoatuuDf, col("adm2koatuu") === col("koatuu"))
-//      .withColumn("adm2", substring(col("katotth"), 1, 6))
-//      .drop("katotth")
       .as[Monument]
       .map(_.withCleanMunicipality)
   }
 
-  def groupByAdm(ds: Dataset[Monument])(implicit spark: SparkSession, lang: Lang.Value): Dataset[CountPerAdm] = {
+  def groupByAdm(ds: Dataset[Monument]): Dataset[CountPerAdm] = {
     import spark.implicits._
 
     ds.groupBy(col("adm1"))
       .count()
       .join(
-        PopulatedPlace.admNames(AdmLevel.ADM1),
+        populatedPlaceRepo.admNames(AdmLevel.ADM1),
         col("adm1") === col("code")
       )
       .select(
@@ -97,22 +105,19 @@ object Monument {
       .as[CountPerAdm]
   }
 
-  def numberOfMonumentsByAdm()(implicit spark: SparkSession, lang: Lang.Value): Dataset[CountPerAdm] = {
-    groupByAdm(cleanDataset(spark))
+  def numberOfMonumentsByAdm(): Dataset[CountPerAdm] = {
+    groupByAdm(cleanDataset())
   }
 
-  def numberOfPicturedMonumentsByAdm()(implicit spark: SparkSession, lang: Lang.Value): Dataset[CountPerAdm] = {
+  def numberOfPicturedMonumentsByAdm(): Dataset[CountPerAdm] = {
     groupByAdm(
-      cleanDataset(spark)
+      cleanDataset()
         .filter(_.image.nonEmpty)
     )
   }
 
-  def percentageOfPicturedMonumentsByAdm1()(implicit spark: SparkSession,
-                                            lang: Lang.Value): Dataset[PercentagePerAdm] = {
-    import spark.implicits._
-
-    cleanDataset(spark)
+  def percentageOfPicturedMonumentsByAdm1(): Dataset[PercentagePerAdm] = {
+    cleanDataset()
       .select(
         col("adm1"),
         when(col("image").isNotNull, 1).otherwise(0).as("pictured")
@@ -123,7 +128,7 @@ object Monument {
         count("pictured").as("count")
       )
       .join(
-        PopulatedPlace.admNames(AdmLevel.ADM1),
+        populatedPlaceRepo.admNames(AdmLevel.ADM1),
         col("adm1") === col("code")
       )
       .withColumn(
@@ -142,7 +147,9 @@ object Monument {
       .as[PercentagePerAdm]
 
   }
+}
 
+object Monument {
   def cleanMunicipality(raw: String): String = {
     raw
       .replace("р-н", "район")

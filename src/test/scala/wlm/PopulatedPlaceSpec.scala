@@ -22,6 +22,12 @@ class PopulatedPlaceSpec extends AnyFlatSpec with Matchers with SharedSparkConte
     adm1.size shouldBe 27
     adm1 shouldBe adm1Names
   }
+
+  it should "return ADM4 level names" in {
+    val adm4 = populatedPlaceRepo.admNames(AdmLevel.ADM4).collect().toSet
+    adm4.size should be > 29000
+    adm4.map(_.name) should contain allOf ("Kyiv", "Kharkiv", "Lviv", "Odesa", "Dnipro")
+  }
 }
 
 object PopulatedPlaceSpec {

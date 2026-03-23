@@ -9,7 +9,7 @@ case class Monument(id: String,
                     image: Option[String],
                     adm1: String,
                     adm2: String,
-                    adm4: String) {
+                    adm4: Option[String]) {
 
   def cleanMunicipality: Option[String] = municipality.map(Monument.cleanMunicipality)
 
@@ -52,7 +52,8 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
       .withColumns(
         Map(
           "adm1" -> adm1Column,
-          "adm2koatuu" -> adm2koatuuColumn
+          "adm2koatuu" -> adm2koatuuColumn,
+          "adm4" -> lit(null)
         ))
   }
 
@@ -71,18 +72,25 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
   def joinedWithKatotth(): Dataset[Monument] = {
     val monuments = cleanDataset()
     val uniqueByPrefix = katotthKoatuuRepo.uniqueNameByAdm2()
+      .withColumnRenamed("name", "municipality_name")
+      .drop("koatuu", "category")
 
     monuments
       .join(
         uniqueByPrefix,
-        substring(col("adm2"), 1, 5) === col("koatuuPrefix") && col("municipality") === col("name")
+        substring(col("adm2"), 1, 5) === col("koatuuPrefix") && col("municipality") === col("municipality_name")
       )
-      .drop("koatuuPrefix", "municipality")
-      .join(populatedPlaceRepo.admNames(AdmLevel.ADM4), substring(col("katotth"), 1, 12) === col("ADM4_PCODE"))
+      .drop("koatuuPrefix", "municipality", "adm2", "adm4", "municipality_name")
+      .join(
+        populatedPlaceRepo.admNames(AdmLevel.ADM4)
+          .withColumnRenamed("name", "municipality_name"),
+        substring(col("katotth"), 1, 12) === col("code")
+      )
+      .withColumn("adm2", substring(col("code"), 1, 6))
       .withColumnsRenamed(
         Map(
-          s"ADM4_$lang" -> "municipality",
-          s"ADM4_PCODE" -> "adm4",
+          "municipality_name" -> "municipality",
+          "code" -> "adm4",
         ))
       .as[Monument]
   }
@@ -114,12 +122,12 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
   }
 
   def numberOfMonumentsByAdm(admLevel: AdmLevel.Value): Dataset[CountPerAdm] = {
-    groupByAdm(joinedWithKatotth(), admLevel)
+    groupByAdm(joinedWithKatotth().as[Monument], admLevel)
   }
 
   def numberOfPicturedMonumentsByAdm(admLevel: AdmLevel.Value): Dataset[CountPerAdm] = {
     groupByAdm(
-      joinedWithKatotth().filter(_.image.nonEmpty),
+      joinedWithKatotth().as[Monument].filter(_.image.nonEmpty),
       admLevel
     )
   }

@@ -8,7 +8,8 @@ case class Monument(id: String,
                     municipality: Option[String],
                     image: Option[String],
                     adm1: String,
-                    adm2: String) {
+                    adm2: String,
+                    adm4: String) {
 
   def cleanMunicipality: Option[String] = municipality.map(Monument.cleanMunicipality)
 
@@ -67,8 +68,8 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
       .as[Monument]
   }
 
-  def joinWithKatotth(): DataFrame = {
-    val monuments = cleanDataset().toDF()
+  def joinedWithKatotth(): Dataset[Monument] = {
+    val monuments = cleanDataset()
     val uniqueByPrefix = katotthKoatuuRepo.uniqueNameByAdm2()
 
     monuments
@@ -76,7 +77,14 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
         uniqueByPrefix,
         substring(col("adm2"), 1, 5) === col("koatuuPrefix") && col("municipality") === col("name")
       )
-      .drop("koatuuPrefix")
+      .drop("koatuuPrefix", "municipality")
+      .join(populatedPlaceRepo.admNames(AdmLevel.ADM4), substring(col("katotth"), 1, 12) === col("ADM4_PCODE"))
+      .withColumnsRenamed(
+        Map(
+          s"ADM4_$lang" -> "municipality",
+          s"ADM4_PCODE" -> "adm4",
+        ))
+      .as[Monument]
   }
 
   def cleanDataset(): Dataset[Monument] = {
@@ -88,14 +96,14 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
       .map(_.withCleanMunicipality)
   }
 
-  def groupByAdm(ds: Dataset[Monument]): Dataset[CountPerAdm] = {
-    import spark.implicits._
+  def groupByAdm(ds: Dataset[Monument], admLevel: AdmLevel.Value): Dataset[CountPerAdm] = {
+    val monumentAdmCol = col(admLevel.toString.toLowerCase)
 
-    ds.groupBy(col("adm1"))
+    ds.groupBy(monumentAdmCol)
       .count()
       .join(
-        populatedPlaceRepo.admNames(AdmLevel.ADM1),
-        col("adm1") === col("code")
+        populatedPlaceRepo.admNames(admLevel),
+        monumentAdmCol === col("code")
       )
       .select(
         struct(col("code"), col("name")).as("adm"),
@@ -105,31 +113,33 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
       .as[CountPerAdm]
   }
 
-  def numberOfMonumentsByAdm(): Dataset[CountPerAdm] = {
-    groupByAdm(cleanDataset())
+  def numberOfMonumentsByAdm(admLevel: AdmLevel.Value): Dataset[CountPerAdm] = {
+    groupByAdm(joinedWithKatotth(), admLevel)
   }
 
-  def numberOfPicturedMonumentsByAdm(): Dataset[CountPerAdm] = {
+  def numberOfPicturedMonumentsByAdm(admLevel: AdmLevel.Value): Dataset[CountPerAdm] = {
     groupByAdm(
-      cleanDataset()
-        .filter(_.image.nonEmpty)
+      joinedWithKatotth().filter(_.image.nonEmpty),
+      admLevel
     )
   }
 
-  def percentageOfPicturedMonumentsByAdm1(): Dataset[PercentagePerAdm] = {
+  def percentageOfPicturedMonumentsByAdm(admLevel: AdmLevel.Value): Dataset[PercentagePerAdm] = {
+    val monumentAdmCol = col(admLevel.toString.toLowerCase)
+
     cleanDataset()
       .select(
-        col("adm1"),
+        monumentAdmCol,
         when(col("image").isNotNull, 1).otherwise(0).as("pictured")
       )
-      .groupBy(col("adm1"))
+      .groupBy(monumentAdmCol)
       .agg(
         sum("pictured").as("pictured"),
         count("pictured").as("count")
       )
       .join(
         populatedPlaceRepo.admNames(AdmLevel.ADM1),
-        col("adm1") === col("code")
+        monumentAdmCol === col("code")
       )
       .withColumn(
         "percentage",

@@ -24,14 +24,8 @@ class MonumentSpec extends AnyFlatSpec with Matchers with SharedSparkContext {
     monumentsWithUnmappedKoatuu.groupBy("adm1", "adm2").count().collect().toSeq should not be Nil
   }
 
-  "cleanedDataset" should "include adm1 and adm2 katotth codes" ignore {
-    val cleanMonument = monumentRepo.cleanDataset().filter(_.id.startsWith("01-204")).limit(1).collect().head
-    cleanMonument.adm1 shouldBe "UA01"
-    cleanMonument.adm2 shouldBe "UA0102"
-  }
-
   "numberOfMonumentsByAdm" should "descending counts for all adm1 regions with some range checks" in {
-    val rows = monumentRepo.numberOfMonumentsByAdm().collect()
+    val rows = monumentRepo.numberOfMonumentsByAdm(AdmLevel.ADM1).collect()
     rows.map(_.adm).toSet shouldBe PopulatedPlaceSpec.adm1Names
     val counts = rows.map(_.count).toSeq
     counts.reverse shouldBe sorted
@@ -42,7 +36,7 @@ class MonumentSpec extends AnyFlatSpec with Matchers with SharedSparkContext {
 
   "numberOfPicturedMonumentsByAdm" should "descending counts for all adm1 regions with some range checks" in {
 
-    val rows = monumentRepo.numberOfPicturedMonumentsByAdm().collect()
+    val rows = monumentRepo.numberOfPicturedMonumentsByAdm(AdmLevel.ADM1).collect()
     rows.map(_.adm).toSet shouldBe PopulatedPlaceSpec.adm1Names
     val counts = rows.map(_.count).toSeq
     counts.reverse shouldBe sorted
@@ -58,12 +52,14 @@ class MonumentSpec extends AnyFlatSpec with Matchers with SharedSparkContext {
         .groupBy(_.adm)
         .mapValues(_.head)
 
-    val ds = monumentRepo.percentageOfPicturedMonumentsByAdm1()
+    val admLevel = AdmLevel.ADM1
+
+    val ds = monumentRepo.percentageOfPicturedMonumentsByAdm(admLevel)
     ds.collect().toSeq.map(_.percentage).reverse shouldBe sorted
 
     val percentagesMap: Map[AdmName, PercentagePerAdm] = groupByAdm(ds)
-    val picturedMap: Map[AdmName, Long] = groupByAdm(monumentRepo.numberOfPicturedMonumentsByAdm()).mapValues(_.count)
-    val totalMap: Map[AdmName, Long] = groupByAdm(monumentRepo.numberOfMonumentsByAdm()).mapValues(_.count)
+    val picturedMap: Map[AdmName, Long] = groupByAdm(monumentRepo.numberOfPicturedMonumentsByAdm(admLevel)).mapValues(_.count)
+    val totalMap: Map[AdmName, Long] = groupByAdm(monumentRepo.numberOfMonumentsByAdm(admLevel)).mapValues(_.count)
     val tolerance: Double = 0.01
 
     percentagesMap.keySet shouldBe PopulatedPlaceSpec.adm1Names

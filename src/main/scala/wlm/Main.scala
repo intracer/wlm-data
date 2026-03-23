@@ -10,16 +10,17 @@ object Main extends App {
     .config("spark.master", "local")
     .getOrCreate()
   val lang: Lang.Value = Lang.EN
+  val admLevel = AdmLevel.ADM1
 
   val monumentRepo = new MonumentRepo(spark, lang)
   val populatedPlace = monumentRepo.populatedPlaceRepo
 
   monumentRepo
-    .percentageOfPicturedMonumentsByAdm1()
+    .percentageOfPicturedMonumentsByAdm(admLevel)
     .show(30, truncate = false)
 
   monumentRepo
-    .percentageOfPicturedMonumentsByAdm1()
+    .percentageOfPicturedMonumentsByAdm(admLevel)
     .show(30, truncate = false)
 
   sys.exit()

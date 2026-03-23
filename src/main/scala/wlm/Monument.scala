@@ -142,7 +142,7 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
   def percentageOfPicturedMonumentsByAdm(admLevel: AdmLevel.Value): Dataset[PercentagePerAdm] = {
     val monumentAdmCol = col(admLevel.toString.toLowerCase)
 
-    cleanDataset()
+    joinedWithKatotth()
       .select(
         monumentAdmCol,
         when(col("image").isNotNull, 1).otherwise(0).as("pictured")
@@ -153,7 +153,7 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
         count("pictured").as("count")
       )
       .join(
-        populatedPlaceRepo.admNames(AdmLevel.ADM1),
+        populatedPlaceRepo.admNames(admLevel),
         monumentAdmCol === col("code")
       )
       .withColumn(

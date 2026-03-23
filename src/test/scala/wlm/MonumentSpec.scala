@@ -65,9 +65,15 @@ class MonumentSpec extends AnyFlatSpec with Matchers with SharedSparkContext {
     percentagesMap.keySet shouldBe PopulatedPlaceSpec.adm1Names
     percentagesMap.map {
       case (adm, stat) =>
-        stat.all shouldBe totalMap(adm)
-        stat.part shouldBe picturedMap(adm)
-        stat.percentage shouldBe (100.0 * stat.part / stat.all +- tolerance)
+        withClue(s"Total monuments is different for $adm") {
+          stat.all shouldBe totalMap(adm)
+        }
+        withClue(s"Pictured monuments is different for $adm") {
+          stat.part shouldBe picturedMap(adm)
+        }
+        withClue(s"Percentage is different for $adm") {
+          stat.percentage shouldBe (100.0 * stat.part / stat.all +- tolerance)
+        }
     }
   }
 

@@ -53,7 +53,6 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
     )
 
     dataframe()
-    //.filter(col("municipality").isNotNull)
       .withColumns(
         Map(
           "adm1" -> adm1Column,
@@ -61,6 +60,14 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
           "adm4" -> lit(null)
         ))
   }
+
+  def cleanedMunicipalityDataset(): Dataset[Monument] = {
+    withKoatuuFromId()
+      .withColumnRenamed("adm2koatuu", "adm2")
+      .as[Monument]
+      .map(_.withCleanMunicipality)
+  }
+
 
   def monumentsWithUnmappedKoatuu(): Dataset[Monument] = {
     val katotthKoatuuDf = katotthKoatuuRepo
@@ -75,7 +82,7 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
   }
 
   def joinedWithKatotth(): Dataset[Monument] = {
-    val monuments = cleanDataset()
+    val monuments = cleanedMunicipalityDataset()
     val uniqueByPrefix = katotthKoatuuRepo
       .uniqueNameByAdm2()
       .withColumnRenamed("name", "municipality_name")
@@ -100,15 +107,6 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
           "code" -> "adm4",
         ))
       .as[Monument]
-  }
-
-  def cleanDataset(): Dataset[Monument] = {
-    import spark.implicits._
-
-    withKoatuuFromId()
-      .withColumnRenamed("adm2koatuu", "adm2")
-      .as[Monument]
-      .map(_.withCleanMunicipality)
   }
 
   def groupByAdm(ds: Dataset[Monument], admLevel: AdmLevel.Value): Dataset[CountPerAdm] = {

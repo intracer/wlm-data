@@ -9,6 +9,7 @@ case class Monument(id: String,
                     image: Option[String],
                     adm1: String,
                     adm2: String,
+                    adm3: Option[String],
                     adm4: Option[String]) {
 
   def cleanMunicipality: Option[String] = municipality.map(Monument.cleanMunicipality)
@@ -57,6 +58,7 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
         Map(
           "adm1" -> adm1Column,
           "adm2koatuu" -> adm2koatuuColumn,
+          "adm3" -> lit(null),
           "adm4" -> lit(null)
         ))
   }
@@ -101,6 +103,7 @@ class MonumentRepo(spark: SparkSession, lang: Lang.Value) {
         substring(col("katotth"), 1, 12) === col("code")
       )
       .withColumn("adm2", substring(col("code"), 1, 6))
+      .withColumn("adm3", substring(col("code"), 1, 9))
       .withColumnsRenamed(
         Map(
           "municipality_name" -> "municipality",

@@ -28,3 +28,23 @@ models:
         data_tests:
           - not_null
           - unique
+
+  - name: silver_monuments_with_cities
+    description: Monuments fully resolved with administrative hierarchy (adm1-adm4)
+    columns:
+      - name: id
+        data_tests:
+          - not_null
+          - unique
+      - name: adm1
+        data_tests:
+          - not_null
+      - name: adm2
+        data_tests:
+          - not_null
+      - name: adm3
+        data_tests:
+          - not_null
+      - name: adm4
+        data_tests:
+          - not_null

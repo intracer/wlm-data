@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: silver_monuments_cleaned
+    description: Monuments with derived KOATUU admin codes and cleaned municipality names
+    columns:
+      - name: id
+        data_tests:
+          - not_null
+          - unique
+      - name: adm1
+        data_tests:
+          - not_null
+      - name: adm2
+        data_tests:
+          - not_null

@@ -49,6 +49,7 @@ build/
 ### DuckDB ###
 *.duckdb
 *.duckdb.wal
+dbt/logs/
 
 ### Generated data ###
 data/processed/

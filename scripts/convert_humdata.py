@@ -2,11 +2,14 @@
 """Download humdata Ukraine populated places Excel and convert to CSV."""
 
 import argparse
-import os
-import sys
-import requests
-import pandas as pd
 import io
+import sys
+
+import pandas as pd
+import requests
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 HUMDATA_URL = "https://data.humdata.org/dataset/ukraine-populated-places/resource/REPLACE_ME/download/ukraine-populated-places.xlsx"
 
@@ -21,11 +24,16 @@ REQUIRED_COLUMNS = [
 
 
 def convert(output_path: str) -> int:
-    existing = "data/humdata/ukraine-populated-places.csv"
-    if os.path.exists(existing):
+    existing = REPO_ROOT / "data/humdata/ukraine-populated-places.csv"
+    if existing.exists():
         print(f"Using existing file {existing}", file=sys.stderr)
         df = pd.read_csv(existing)
     else:
+        if "REPLACE_ME" in HUMDATA_URL:
+            raise RuntimeError(
+                "HUMDATA_URL contains a placeholder. Update the URL in convert_humdata.py "
+                "or place the CSV at data/humdata/ukraine-populated-places.csv"
+            )
         print(f"Downloading from {HUMDATA_URL}", file=sys.stderr)
         resp = requests.get(HUMDATA_URL, timeout=120)
         resp.raise_for_status()

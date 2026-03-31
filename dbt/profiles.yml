@@ -3,5 +3,5 @@ wlm_dbt:
   outputs:
     dev:
       type: duckdb
-      path: ../data/processed/dbt/wlm.duckdb
+      path: data/processed/dbt/wlm.duckdb
       threads: 4

@@ -42,3 +42,14 @@ build/
 
 ### Scala ###
 .bsp/
+
+### Worktrees ###
+.worktrees/
+
+### DuckDB ###
+*.duckdb
+*.duckdb.wal
+
+### Generated data ###
+data/processed/
+data/raw/

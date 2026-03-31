@@ -12,15 +12,16 @@ object Main extends App {
   val lang: Lang.Value = Lang.EN
   val admLevel = AdmLevel.ADM1
 
+  val outputPath = if (args.nonEmpty) args(0) else "data/processed/spark"
+
   val monumentRepo = new MonumentRepo(spark, lang)
 
   val monumentsWithCitiesDs = monumentRepo.joinedWithKatotth()
   monumentsWithCitiesDs.show(20, truncate = false)
 
-  monumentsWithCitiesDs.write.parquet("data/wiki/monuments/wlm-ua-with-cities")
+  monumentsWithCitiesDs.write.mode("overwrite").parquet(outputPath)
 
   monumentRepo
     .percentageOfPicturedMonumentsByAdm(admLevel)
     .show(30, truncate = false)
-
 }

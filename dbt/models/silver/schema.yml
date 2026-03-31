@@ -2,12 +2,14 @@ version: 2
 
 models:
   - name: silver_monuments_cleaned
-    description: Monuments with derived KOATUU admin codes and cleaned municipality names
+    description: >
+      Monuments with derived KOATUU admin codes and cleaned municipality names.
+      Note: the source Wikipedia data contains ~39 duplicate monument IDs;
+      these are preserved as-is to match Spark pipeline behavior.
     columns:
       - name: id
         data_tests:
           - not_null
-          - unique
       - name: adm1
         data_tests:
           - not_null
@@ -35,7 +37,6 @@ models:
       - name: id
         data_tests:
           - not_null
-          - unique
       - name: adm1
         data_tests:
           - not_null

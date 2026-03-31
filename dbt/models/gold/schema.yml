@@ -1,0 +1,33 @@
+version: 2
+
+models:
+  - name: gold_monuments_full
+    description: Fully denormalized monuments with all admin level names
+    columns:
+      - name: id
+        data_tests:
+          - not_null
+  - name: gold_monuments_by_adm
+    description: Monument counts per admin level (ADM1–ADM4)
+    columns:
+      - name: level
+        data_tests:
+          - not_null
+      - name: code
+        data_tests:
+          - not_null
+      - name: monument_count
+        data_tests:
+          - not_null
+  - name: gold_pictured_by_adm
+    description: Photo coverage percentage per admin level (ADM1–ADM4)
+    columns:
+      - name: level
+        data_tests:
+          - not_null
+      - name: code
+        data_tests:
+          - not_null
+      - name: percentage
+        data_tests:
+          - not_null

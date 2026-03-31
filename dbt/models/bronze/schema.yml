@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: bronze_monuments_raw
+    description: Raw monuments data from Wikipedia WLM fetch
+    columns:
+      - name: id
+        data_tests:
+          - not_null
+  - name: bronze_humdata_raw
+    description: Raw Ukraine populated places from humdata.org
+    columns:
+      - name: ADM4_PCODE
+        data_tests:
+          - not_null
+          - unique
+  - name: bronze_katotth_raw
+    description: Static KATOTTH to KOATUU mapping
+    columns:
+      - name: katotth
+        data_tests:
+          - not_null
+          - unique

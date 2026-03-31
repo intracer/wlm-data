@@ -14,3 +14,17 @@ models:
       - name: adm2
         data_tests:
           - not_null
+
+  - name: silver_katotth_unique
+    description: KATOTTH entries where (koatuuPrefix, name) is unique
+    columns:
+      - name: koatuuPrefix
+        data_tests:
+          - not_null
+      - name: name
+        data_tests:
+          - not_null
+      - name: katotth
+        data_tests:
+          - not_null
+          - unique

@@ -37,7 +37,7 @@ object WlmStreamingApp {
     if (runQ1) {
       cumulativeQuery(outputDir, checkpointDir, transformed, admNamesDf)
     } else {
-      windowedAgg(outputDir, checkpointDir, windowDur, watermarkDur, transformed)
+      windowedAgg(outputDir, checkpointDir, windowDur, watermarkDur, transformed, admNamesDf)
     }
 
     spark.streams.awaitAnyTermination()
@@ -47,15 +47,23 @@ object WlmStreamingApp {
                           checkpointDir: String,
                           windowDur: String,
                           watermarkDur: String,
-                          transformed: DataFrame): Unit = {
+                          transformed: DataFrame,
+                          admNamesDf: DataFrame): Unit = {
     val q2 = Queries
       .windowedAgg(transformed, windowDur, watermarkDur)
       .writeStream
       .outputMode("append")
       .option("checkpointLocation", s"$checkpointDir/windowed")
       .foreachBatch { (batchDf: DataFrame, _: Long) =>
-        batchDf.show(truncate = false)
-        batchDf.write.mode("append").parquet(s"$outputDir/windowed")
+        val withNames = batchDf
+          .join(admNamesDf, concat(lit("UA"), col("region")) === col("code"), "left")
+          .drop("code", "region")
+          .withColumnRenamed("name", "region_name")
+          .sort(col("monuments_pictured").desc)
+          //.select("author", "region_name", "monuments_pictured")
+
+        withNames.show(truncate = false)
+        withNames.write.mode("append").parquet(s"$outputDir/windowed")
       }
       .start()
   }

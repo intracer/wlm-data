@@ -1,6 +1,6 @@
 import pyspark.sql.functions as F
 from pyspark.sql.types import StructType, StructField, StringType
-from wlm.common import Lang
+from wlm.common import AdmLevel, Lang
 from wlm.monuments import MonumentRepo
 
 # ADM1 codes for all 27 Ukrainian regions (from PopulatedPlaceSpec)
@@ -76,3 +76,14 @@ def test_monuments_with_unmapped_koatuu_has_groups(spark):
     result = repo.monuments_with_unmapped_koatuu()
     groups = result.groupBy("adm1", "adm2").count().collect()
     assert len(groups) > 0
+
+
+def test_joined_with_katotth_has_adm_columns(spark):
+    repo = MonumentRepo(spark, Lang.EN)
+    result = repo.joined_with_katotth()
+    assert result.count() > 0
+    col_names = set(result.columns)
+    assert {"id", "name", "image", "adm1", "adm2", "adm3", "adm4", "municipality"}.issubset(col_names)
+    # adm1 values should all be valid UA codes
+    adm1_values = {r.adm1 for r in result.select("adm1").distinct().collect()}
+    assert adm1_values.issubset(ADM1_CODES)

@@ -65,3 +65,28 @@ class MonumentRepo:
                 )
                 .filter(F.col("koatuu").isNull())
                 .withColumnRenamed("adm2koatuu", "adm2"))
+
+    def joined_with_katotth(self) -> DataFrame:
+        monuments = self.cleaned_municipality_dataset()
+
+        unique_by_prefix = (self._katotth_koatuu_repo.unique_name_by_adm2()
+                            .withColumnRenamed("name", "municipality_name")
+                            .drop("koatuu", "category"))
+
+        adm4_names = (self._populated_place_repo.adm_names(AdmLevel.ADM4)
+                      .withColumnRenamed("name", "municipality_name"))
+
+        return (monuments
+                .join(
+                    unique_by_prefix,
+                    (F.substring(F.col("adm2"), 1, 5) == F.col("koatuuPrefix")) &
+                    (F.col("municipality") == F.col("municipality_name"))
+                )
+                .drop("koatuuPrefix", "municipality", "adm2", "adm4", "municipality_name")
+                .join(
+                    adm4_names,
+                    F.substring(F.col("katotth"), 1, 12) == F.col("code")
+                )
+                .withColumn("adm2", F.substring(F.col("code"), 1, 6))
+                .withColumn("adm3", F.substring(F.col("code"), 1, 9))
+                .withColumnsRenamed({"municipality_name": "municipality", "code": "adm4"}))

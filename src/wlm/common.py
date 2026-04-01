@@ -1,6 +1,6 @@
 from enum import Enum
 import pyspark.sql.functions as F
-from pyspark.sql import Column
+from pyspark.sql import Column, DataFrame, SparkSession
 
 
 class AdmLevel(Enum):
@@ -56,3 +56,26 @@ def clean_municipality_col(c: Column) -> Column:
     # capture everything before the first '(' or '|', then trim.
     result = F.trim(F.regexp_extract(result, r"^([^(|]*)", 1))
     return result
+
+
+class PopulatedPlaceRepo:
+    DEFAULT_PATH = "data/humdata/ukraine-populated-places.csv"
+
+    def __init__(self, spark: SparkSession, lang: "Lang", path: str = DEFAULT_PATH):
+        self._spark = spark
+        self._lang = lang
+        self._path = path
+
+    def populated_places_df(self) -> DataFrame:
+        return self._spark.read.option("header", "true").csv(self._path)
+
+    def adm_names(self, adm_level: "AdmLevel") -> DataFrame:
+        level = adm_level.value
+        lang = self._lang.value
+        return (self.populated_places_df()
+                .select(
+                    F.col(f"{level}_PCODE").alias("code"),
+                    F.col(f"{level}_{lang}").alias("name")
+                )
+                .distinct()
+                .orderBy("code"))

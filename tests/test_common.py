@@ -1,5 +1,5 @@
 from pyspark.sql.functions import col
-from wlm.common import AdmLevel, Lang, clean_municipality_col
+from wlm.common import AdmLevel, Lang, clean_municipality_col, PopulatedPlaceRepo
 
 
 def test_adm_level_values():
@@ -58,3 +58,25 @@ def test_clean_municipality_expands_rayon_abbreviation(spark):
     df = spark.createDataFrame([("Boryspil р-н",)], ["raw"])
     result = df.withColumn("clean", clean_municipality_col(col("raw"))).collect()
     assert result[0].clean == "Boryspil район"
+
+
+def test_populated_place_adm0_is_ukraine(spark):
+    repo = PopulatedPlaceRepo(spark, Lang.EN)
+    result = repo.adm_names(AdmLevel.ADM0).collect()
+    assert len(result) == 1
+    assert result[0].code == "UA"
+    assert result[0].name == "Ukraine"
+
+
+def test_populated_place_adm1_has_27_regions(spark):
+    repo = PopulatedPlaceRepo(spark, Lang.EN)
+    result = repo.adm_names(AdmLevel.ADM1).collect()
+    assert len(result) == 27
+
+
+def test_populated_place_adm4_contains_major_cities(spark):
+    repo = PopulatedPlaceRepo(spark, Lang.EN)
+    result = repo.adm_names(AdmLevel.ADM4).collect()
+    assert len(result) > 29000
+    names = {r.name for r in result}
+    assert {"Kyiv", "Kharkiv", "Lviv", "Odesa", "Dnipro"}.issubset(names)

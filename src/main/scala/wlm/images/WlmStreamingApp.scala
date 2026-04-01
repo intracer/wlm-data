@@ -3,53 +3,81 @@ package wlm.images
 import com.typesafe.config.ConfigFactory
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.functions._
+import wlm.monuments.{AdmLevel, Lang, PopulatedPlaceRepo}
 
 object WlmStreamingApp {
 
   def main(args: Array[String]): Unit = {
-    val cfg          = ConfigFactory.load().getConfig("spark-streaming")
-    val inputDir     = cfg.getString("input-dir")
-    val outputDir    = cfg.getString("output-dir")
+    val cfg = ConfigFactory.load().getConfig("spark-streaming")
+    val inputDir = cfg.getString("input-dir")
+    val outputDir = cfg.getString("output-dir")
     val checkpointDir = cfg.getString("checkpoint-dir")
-    val windowDur    = cfg.getString("window-duration")
+    val windowDur = cfg.getString("window-duration")
     val watermarkDur = cfg.getString("watermark-duration")
 
-    val spark = SparkSession.builder()
+    val spark = SparkSession
+      .builder()
       .appName("WlmStreamingApp")
       .master("local[*]")
       .getOrCreate()
 
     spark.sparkContext.setLogLevel("WARN")
 
+    val admNamesDf: DataFrame = new PopulatedPlaceRepo(spark, Lang.EN).admNames(AdmLevel.ADM1).toDF()
+
     val rawStream = spark.readStream
       .schema(WlmSchema.csvSchema)
       .option("header", "true")
-      .csv("images")
+      .csv("data/images")
 
     val transformed = Transformations.transform(rawStream)
 
-    // Query 1: cumulative (complete mode) — foreachBatch writes console + Parquet
-    val q1 = Queries.cumulativeAgg(transformed)
+    val runQ1 = false
+    if (runQ1) {
+      cumulativeQuery(outputDir, checkpointDir, transformed, admNamesDf)
+    } else {
+      windowedAgg(outputDir, checkpointDir, windowDur, watermarkDur, transformed)
+    }
+
+    spark.streams.awaitAnyTermination()
+  }
+
+  private def windowedAgg(outputDir: String,
+                          checkpointDir: String,
+                          windowDur: String,
+                          watermarkDur: String,
+                          transformed: DataFrame): Unit = {
+    val q2 = Queries
+      .windowedAgg(transformed, windowDur, watermarkDur)
+      .writeStream
+      .outputMode("append")
+      .option("checkpointLocation", s"$checkpointDir/windowed")
+      .foreachBatch { (batchDf: DataFrame, _: Long) =>
+        batchDf.show(truncate = false)
+        batchDf.write.mode("append").parquet(s"$outputDir/windowed")
+      }
+      .start()
+  }
+
+  private def cumulativeQuery(outputDir: String,
+                              checkpointDir: String,
+                              transformed: DataFrame,
+                              admNamesDf: DataFrame): Unit = {
+    val q1 = Queries
+      .cumulativeAgg(transformed)
       .writeStream
       .outputMode("complete")
       .option("checkpointLocation", s"$checkpointDir/cumulative")
       .foreachBatch { (batchDf: DataFrame, _: Long) =>
-        batchDf.show(truncate = false)
-        batchDf.write.mode("overwrite").parquet(s"$outputDir/cumulative")
+        val withNames = batchDf
+          .join(admNamesDf, concat(lit("UA"), col("region")) === col("code"), "left")
+          .drop("code")
+          .withColumnRenamed("name", "region_name")
+          .select("author", "region_name", "monuments_pictured")
+        withNames.show(truncate = false)
+        withNames.write.mode("overwrite").parquet(s"$outputDir/cumulative")
       }
       .start()
-
-    // Query 2: windowed (append mode + watermark) — foreachBatch writes console + Parquet
-//    val q2 = Queries.windowedAgg(transformed, windowDur, watermarkDur)
-//      .writeStream
-//      .outputMode("append")
-//      .option("checkpointLocation", s"$checkpointDir/windowed")
-//      .foreachBatch { (batchDf: DataFrame, _: Long) =>
-//        batchDf.show(truncate = false)
-//        batchDf.write.mode("append").parquet(s"$outputDir/windowed")
-//      }
-//      .start()
-
-    spark.streams.awaitAnyTermination()
   }
 }

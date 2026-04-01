@@ -1,3 +1,4 @@
+import pyspark.sql.functions as F
 from pyspark.sql.types import StructType, StructField, StringType
 from wlm.common import Lang
 from wlm.monuments import MonumentRepo
@@ -59,3 +60,19 @@ def test_with_koatuu_from_id_sevastopol_special_case(spark):
     result = MonumentRepo(spark, Lang.EN)._with_koatuu_from_id_df(df).collect()
     assert result[0].adm1 == "UA85"
     assert result[0].adm2koatuu == "8500000000"
+
+
+def test_cleaned_municipality_dataset_non_empty(spark):
+    repo = MonumentRepo(spark, Lang.EN)
+    result = repo.cleaned_municipality_dataset()
+    assert result.count() > 0
+    # municipality column exists and is not all null
+    non_null = result.filter(F.col("municipality").isNotNull()).count()
+    assert non_null > 0
+
+
+def test_monuments_with_unmapped_koatuu_has_groups(spark):
+    repo = MonumentRepo(spark, Lang.EN)
+    result = repo.monuments_with_unmapped_koatuu()
+    groups = result.groupBy("adm1", "adm2").count().collect()
+    assert len(groups) > 0

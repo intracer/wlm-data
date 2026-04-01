@@ -49,3 +49,19 @@ class MonumentRepo:
                 .withColumn("adm2koatuu", adm2_koatuu_col)
                 .withColumn("adm3", F.lit(None).cast("string"))
                 .withColumn("adm4", F.lit(None).cast("string")))
+
+    def cleaned_municipality_dataset(self) -> DataFrame:
+        return (self.with_koatuu_from_id()
+                .withColumnRenamed("adm2koatuu", "adm2")
+                .withColumn("municipality", clean_municipality_col(F.col("municipality"))))
+
+    def monuments_with_unmapped_koatuu(self) -> DataFrame:
+        katotth_df = self._katotth_koatuu_repo.dataframe().drop("category", "name")
+        return (self.with_koatuu_from_id()
+                .join(
+                    katotth_df,
+                    F.col("adm2koatuu") == F.col("koatuu"),
+                    "left_outer"
+                )
+                .filter(F.col("koatuu").isNull())
+                .withColumnRenamed("adm2koatuu", "adm2"))

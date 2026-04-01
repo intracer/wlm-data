@@ -3,12 +3,18 @@ package wlm.images
 import com.holdenkarau.spark.testing.StructuredStreamingBase
 import org.apache.spark.sql.{Encoder, Row, SQLContext}
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
+import org.apache.spark.sql.execution.streaming.state.StateStore
 import org.apache.spark.sql.functions.col
 import org.scalatest.funsuite.AnyFunSuite
 
 import java.sql.Timestamp
 
 class WindowedQuerySpec extends AnyFunSuite with StructuredStreamingBase {
+
+  override def afterAll(): Unit = {
+    StateStore.stop()
+    super.afterAll()
+  }
 
   private val schema = WlmSchema.transformedSchema
   implicit lazy val encoder: Encoder[Row] = ExpressionEncoder(schema)

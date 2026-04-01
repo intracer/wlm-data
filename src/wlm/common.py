@@ -79,3 +79,34 @@ class PopulatedPlaceRepo:
                 )
                 .distinct()
                 .orderBy("code"))
+
+
+class KatotthKoatuuRepo:
+    DEFAULT_PATH = "data/katotth/katotth_koatuu.csv"
+
+    def __init__(self, spark: SparkSession, path: str = DEFAULT_PATH):
+        self._spark = spark
+        self._path = path
+
+    def dataframe(self) -> DataFrame:
+        return self._spark.read.option("header", "true").csv(self._path)
+
+    def grouped_by_adm2_and_name(self) -> DataFrame:
+        return (self.dataframe()
+                .withColumn("koatuuPrefix", F.substring(F.col("koatuu"), 1, 5))
+                .groupBy("koatuuPrefix", "name")
+                .agg(
+                    F.count("*").alias("cnt"),
+                    F.first("katotth").alias("katotth"),
+                    F.first("koatuu").alias("koatuu"),
+                    F.first("category").alias("category")
+                ))
+
+    def unique_name_by_adm2(self) -> DataFrame:
+        return (self.grouped_by_adm2_and_name()
+                .filter(F.col("cnt") == 1)
+                .drop("cnt"))
+
+    def non_unique_name_by_adm2(self) -> DataFrame:
+        return (self.grouped_by_adm2_and_name()
+                .filter(F.col("cnt") > 1))

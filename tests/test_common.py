@@ -1,5 +1,6 @@
 from pyspark.sql.functions import col
-from wlm.common import AdmLevel, Lang, clean_municipality_col, PopulatedPlaceRepo
+import pyspark.sql.functions as F
+from wlm.common import AdmLevel, Lang, clean_municipality_col, PopulatedPlaceRepo, KatotthKoatuuRepo
 
 
 def test_adm_level_values():
@@ -80,3 +81,20 @@ def test_populated_place_adm4_contains_major_cities(spark):
     assert len(result) > 29000
     names = {r.name for r in result}
     assert {"Kyiv", "Kharkiv", "Lviv", "Odesa", "Dnipro"}.issubset(names)
+
+
+def test_unique_name_by_adm2_has_no_duplicate_prefix_name_pairs(spark):
+    repo = KatotthKoatuuRepo(spark)
+    result = repo.unique_name_by_adm2()
+    # Every (koatuuPrefix, name) pair must appear exactly once
+    max_cnt = (result
+               .groupBy("koatuuPrefix", "name")
+               .agg(F.count("*").alias("cnt"))
+               .agg(F.max("cnt"))
+               .collect()[0][0])
+    assert max_cnt == 1
+
+
+def test_non_unique_name_by_adm2_is_non_empty(spark):
+    repo = KatotthKoatuuRepo(spark)
+    assert repo.non_unique_name_by_adm2().count() > 0

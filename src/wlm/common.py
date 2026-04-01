@@ -36,6 +36,7 @@ def clean_municipality_col(c: Column) -> Column:
         ("місто", ""),
         ("с\\.", ""),
         ("С\\.", ""),
+        ("сел\\.", ""),      # village abbreviation with dot - must be before generic dot removal
         ("\\.", ""),         # remove all remaining dots
         ("село", ""),
         ("смт", ""),

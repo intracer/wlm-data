@@ -3,7 +3,7 @@ package wlm.images
 import com.typesafe.config.ConfigFactory
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.functions._
+import org.apache.spark.sql.functions.col
 import wlm.monuments.{AdmLevel, Lang, PopulatedPlaceRepo}
 
 object WlmStreamingApp {
@@ -50,20 +50,14 @@ object WlmStreamingApp {
                           transformed: DataFrame,
                           admNamesDf: DataFrame): Unit = {
     val q2 = Queries
-      .windowedAgg(transformed, windowDur, watermarkDur)
+      .windowedAgg(transformed, admNamesDf, windowDur, watermarkDur)
       .writeStream
       .outputMode("append")
       .option("checkpointLocation", s"$checkpointDir/windowed")
       .foreachBatch { (batchDf: DataFrame, _: Long) =>
-        val withNames = batchDf
-          .join(admNamesDf, concat(lit("UA"), col("region")) === col("code"), "left")
-          .drop("code", "region")
-          .withColumnRenamed("name", "region_name")
-          .sort(col("monuments_pictured").desc)
-          //.select("author", "region_name", "monuments_pictured")
-
-        withNames.show(truncate = false)
-        withNames.write.mode("append").parquet(s"$outputDir/windowed")
+        val sorted = batchDf.sort(col("monuments_pictured").desc)
+        sorted.show(truncate = false)
+        sorted.write.mode("append").parquet(s"$outputDir/windowed")
       }
       .start()
   }
@@ -73,18 +67,13 @@ object WlmStreamingApp {
                               transformed: DataFrame,
                               admNamesDf: DataFrame): Unit = {
     val q1 = Queries
-      .cumulativeAgg(transformed)
+      .cumulativeAgg(transformed, admNamesDf)
       .writeStream
       .outputMode("complete")
       .option("checkpointLocation", s"$checkpointDir/cumulative")
       .foreachBatch { (batchDf: DataFrame, _: Long) =>
-        val withNames = batchDf
-          .join(admNamesDf, concat(lit("UA"), col("region")) === col("code"), "left")
-          .drop("code")
-          .withColumnRenamed("name", "region_name")
-          .select("author", "region_name", "monuments_pictured")
-        withNames.show(truncate = false)
-        withNames.write.mode("overwrite").parquet(s"$outputDir/cumulative")
+        batchDf.show(truncate = false)
+        batchDf.write.mode("overwrite").parquet(s"$outputDir/cumulative")
       }
       .start()
   }

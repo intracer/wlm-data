@@ -2,11 +2,21 @@ package wlm.images
 
 import com.holdenkarau.spark.testing.DataFrameSuiteBase
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.types.{StringType, StructField, StructType}
 import org.scalatest.funsuite.AnyFunSuite
 
 class CumulativeQuerySpec extends AnyFunSuite with DataFrameSuiteBase {
 
   private val schema = WlmSchema.transformedSchema
+  private val admNamesSchema = StructType(Seq(
+    StructField("code", StringType),
+    StructField("name", StringType)
+  ))
+
+  private def emptyAdmNames = spark.createDataFrame(
+    spark.sparkContext.parallelize(Seq.empty[Row]),
+    admNamesSchema
+  )
 
   test("counts distinct monuments per author+region") {
     val rows = spark.sparkContext.parallelize(Seq(
@@ -16,7 +26,7 @@ class CumulativeQuerySpec extends AnyFunSuite with DataFrameSuiteBase {
       Row("Bob",   "14-102-0001", "14-102", null)
     ))
     val df = spark.createDataFrame(rows, schema)
-    val result = Queries.cumulativeAgg(df)
+    val result = Queries.cumulativeAgg(df, emptyAdmNames)
 
     val alice = result.filter(result("author") === "Alice").collect()
     assert(alice.length == 1)
@@ -33,7 +43,7 @@ class CumulativeQuerySpec extends AnyFunSuite with DataFrameSuiteBase {
       Row("Alice", "14-102-0001", "14-102", null)
     ))
     val df = spark.createDataFrame(rows, schema)
-    val result = Queries.cumulativeAgg(df)
+    val result = Queries.cumulativeAgg(df, emptyAdmNames)
     assert(result.count() == 2)
   }
 }

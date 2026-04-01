@@ -4,6 +4,7 @@ import com.holdenkarau.spark.testing.StructuredStreamingBase
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.execution.streaming.state.StateStore
 import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.types.{StringType, StructField, StructType}
 import org.apache.spark.sql.{Encoder, Row}
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -19,11 +20,21 @@ class WindowedQuerySpec extends AnyFunSuite with StructuredStreamingBase {
   private val schema = WlmSchema.transformedSchema
   implicit lazy val encoder: Encoder[Row] = ExpressionEncoder(schema)
 
+  private val admNamesSchema = StructType(Seq(
+    StructField("code", StringType),
+    StructField("name", StringType)
+  ))
+
+  private def emptyAdmNames = spark.createDataFrame(
+    spark.sparkContext.parallelize(Seq.empty[Row]),
+    admNamesSchema
+  )
+
   test("emits counts for closed windows") {
     import org.apache.spark.sql.execution.streaming.MemoryStream
 
     val memStream = MemoryStream[Row](1, spark.sqlContext)
-    val windowed = Queries.windowedAgg(memStream.toDF(), "10 minutes", "2 minutes")
+    val windowed = Queries.windowedAgg(memStream.toDF(), emptyAdmNames, "10 minutes", "2 minutes")
 
     val query = windowed.writeStream
       .format("memory")
@@ -46,7 +57,7 @@ class WindowedQuerySpec extends AnyFunSuite with StructuredStreamingBase {
 
     val results = spark.table("windowed_test_closed")
     val alice = results
-      .filter(col("author") === "Alice" && col("region") === "14-101")
+      .filter(col("author") === "Alice")
       .collect()
 
     assert(alice.length == 1, s"expected 1 Alice row, got ${alice.length}")
@@ -59,7 +70,7 @@ class WindowedQuerySpec extends AnyFunSuite with StructuredStreamingBase {
     import org.apache.spark.sql.execution.streaming.MemoryStream
 
     val memStream = MemoryStream[Row](2, spark.sqlContext)
-    val windowed = Queries.windowedAgg(memStream.toDF(), "10 minutes", "2 minutes")
+    val windowed = Queries.windowedAgg(memStream.toDF(), emptyAdmNames, "10 minutes", "2 minutes")
 
     val query = windowed.writeStream
       .format("memory")

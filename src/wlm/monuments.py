@@ -76,13 +76,16 @@ class MonumentRepo:
         adm4_names = (self._populated_place_repo.adm_names(AdmLevel.ADM4)
                       .withColumnRenamed("name", "municipality_name"))
 
+        # Inner joins: monuments that cannot be mapped to a KATOTTH entry or an
+        # ADM4 place name are intentionally excluded from the result.
+        # Use monuments_with_unmapped_koatuu() to inspect what was excluded.
         return (monuments
                 .join(
                     unique_by_prefix,
                     (F.substring(F.col("adm2"), 1, 5) == F.col("koatuuPrefix")) &
                     (F.col("municipality") == F.col("municipality_name"))
                 )
-                .drop("koatuuPrefix", "municipality", "adm2", "adm4", "municipality_name")
+                .drop("koatuuPrefix", "municipality", "adm2", "adm3", "adm4", "municipality_name")
                 .join(
                     adm4_names,
                     F.substring(F.col("katotth"), 1, 12) == F.col("code")

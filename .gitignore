@@ -54,3 +54,8 @@ dbt/logs/
 ### Generated data ###
 data/processed/
 data/raw/
+
+### Python ###
+__pycache__/
+*.pyc
+*.pyo

@@ -32,7 +32,8 @@ def monuments_raw(context: AssetExecutionContext):
         text=True,
     )
     context.log.info(result.stderr)
-    row_count = sum(1 for _ in open(output)) - 1
+    with open(output, encoding="utf-8") as f:
+        row_count = sum(1 for _ in f) - 1
     context.add_output_metadata({"row_count": row_count, "path": str(output)})
 
 
@@ -49,7 +50,8 @@ def humdata_raw(context: AssetExecutionContext):
         text=True,
     )
     context.log.info(result.stderr)
-    row_count = sum(1 for _ in open(output)) - 1
+    with open(output, encoding="utf-8") as f:
+        row_count = sum(1 for _ in f) - 1
     context.add_output_metadata({"row_count": row_count, "path": str(output)})
 
 
@@ -58,7 +60,7 @@ def spark_output(context: AssetExecutionContext):
     """Run existing Spark/Scala pipeline via sbt."""
     SPARK_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
-        ["sbt", f"run {SPARK_OUTPUT_DIR}"],
+        ["sbt", f"-Doutput.path={SPARK_OUTPUT_DIR}", "run", str(SPARK_OUTPUT_DIR)],
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,
@@ -128,9 +130,14 @@ def compare_outputs(context: AssetExecutionContext):
     lines.append(f"Matched rows (by id): {matched}")
     lines.append("")
 
+    if matched == 0:
+        raise ValueError("No rows matched between Spark and dbt outputs on 'id' — check schema alignment")
+
     threshold_ok = True
     for col in ["adm1", "adm2", "adm3", "adm4", "municipality"]:
-        mismatches = int((merged[f"{col}_spark"] != merged[f"{col}_dbt"]).sum())
+        col_s = merged[f"{col}_spark"]
+        col_d = merged[f"{col}_dbt"]
+        mismatches = int(((col_s != col_d) & ~(col_s.isna() & col_d.isna())).sum())
         pct = mismatches / matched * 100 if matched > 0 else 0.0
         lines.append(f"- `{col}`: {mismatches} mismatches ({pct:.2f}%)")
         if pct > 0.1:

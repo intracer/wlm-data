@@ -72,7 +72,6 @@ class ImageUploadSimulatorSpec extends AnyFunSuite {
     sim.run()
 
     assert(copiedAt.length == 3)
-    // Each copy should be ~100ms apart; allow generous margin for CI
     val gaps = copiedAt.sliding(2).map { s => s(1) - s(0) }.toSeq
     gaps.foreach(gap => assert(gap >= 80L, s"gap $gap ms too short"))
   }

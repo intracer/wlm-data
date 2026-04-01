@@ -2,13 +2,10 @@ package wlm.images
 
 import com.holdenkarau.spark.testing.DataFrameSuiteBase
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.types._
 import org.scalatest.funsuite.AnyFunSuite
 
 class CumulativeQuerySpec extends AnyFunSuite with DataFrameSuiteBase {
 
-  // Static DataFrame with transformed schema — no streaming source needed.
-  // approx_count_distinct is exact for small cardinalities so assertions are precise.
   private val schema = WlmSchema.transformedSchema
 
   test("counts distinct monuments per author+region") {

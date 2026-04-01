@@ -13,8 +13,7 @@ object Transformations {
    *   2. Split monument_id on ";" and explode → one row per monument. Empty/null monument_id
    *      rows are dropped (explode drops null arrays; empty strings are filtered explicitly).
    *   3. Extract region as the first two digits of the monument id (oblast-level code),
-   *      e.g. "14" from "14-101-0001". Matches the region granularity used by
-   *      Monument.getRegionId in scalawiki-wlx.
+   *      e.g. "14" from "14-101-0001".
    *   4. Select author, monument, region, upload_date_ts.
    */
   def transform(df: DataFrame): DataFrame = {

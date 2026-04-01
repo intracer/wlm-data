@@ -1,10 +1,10 @@
 package wlm.images
 
 import com.holdenkarau.spark.testing.StructuredStreamingBase
-import org.apache.spark.sql.{Encoder, Row, SQLContext}
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.execution.streaming.state.StateStore
 import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.{Encoder, Row}
 import org.scalatest.funsuite.AnyFunSuite
 
 import java.sql.Timestamp

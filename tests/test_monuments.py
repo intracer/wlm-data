@@ -1,6 +1,5 @@
-import pytest
 from pyspark.sql.types import StructType, StructField, StringType
-from wlm.common import AdmLevel, Lang
+from wlm.common import Lang
 from wlm.monuments import MonumentRepo
 
 # ADM1 codes for all 27 Ukrainian regions (from PopulatedPlaceSpec)

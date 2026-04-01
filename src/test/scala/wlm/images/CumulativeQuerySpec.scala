@@ -1,0 +1,49 @@
+package wlm.images
+
+import com.holdenkarau.spark.testing.DataFrameSuiteBase
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.types.{StringType, StructField, StructType}
+import org.scalatest.funsuite.AnyFunSuite
+
+class CumulativeQuerySpec extends AnyFunSuite with DataFrameSuiteBase {
+
+  private val schema = WlmSchema.transformedSchema
+  private val admNamesSchema = StructType(Seq(
+    StructField("code", StringType),
+    StructField("name", StringType)
+  ))
+
+  private def emptyAdmNames = spark.createDataFrame(
+    spark.sparkContext.parallelize(Seq.empty[Row]),
+    admNamesSchema
+  )
+
+  test("counts distinct monuments per author+region") {
+    val rows = spark.sparkContext.parallelize(Seq(
+      Row("Alice", "14-101-0001", "14-101", null),
+      Row("Alice", "14-101-0002", "14-101", null),
+      Row("Alice", "14-101-0001", "14-101", null), // duplicate — same monument, not counted twice
+      Row("Bob",   "14-102-0001", "14-102", null)
+    ))
+    val df = spark.createDataFrame(rows, schema)
+    val result = Queries.cumulativeAgg(df, emptyAdmNames)
+
+    val alice = result.filter(result("author") === "Alice").collect()
+    assert(alice.length == 1)
+    assert(alice(0).getAs[Long]("monuments_pictured") == 2L)
+
+    val bob = result.filter(result("author") === "Bob").collect()
+    assert(bob.length == 1)
+    assert(bob(0).getAs[Long]("monuments_pictured") == 1L)
+  }
+
+  test("groups by both author and region independently") {
+    val rows = spark.sparkContext.parallelize(Seq(
+      Row("Alice", "14-101-0001", "14-101", null),
+      Row("Alice", "14-102-0001", "14-102", null)
+    ))
+    val df = spark.createDataFrame(rows, schema)
+    val result = Queries.cumulativeAgg(df, emptyAdmNames)
+    assert(result.count() == 2)
+  }
+}

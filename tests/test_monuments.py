@@ -87,3 +87,40 @@ def test_joined_with_katotth_has_adm_columns(spark):
     # adm1 values should all be valid UA codes
     adm1_values = {r.adm1 for r in result.select("adm1").distinct().collect()}
     assert adm1_values.issubset(ADM1_CODES)
+
+
+def test_number_of_monuments_by_adm1(spark):
+    repo = MonumentRepo(spark, Lang.EN)
+    rows = repo.number_of_monuments_by_adm(AdmLevel.ADM1).collect()
+    codes = {r.adm["code"] for r in rows}
+    assert codes == ADM1_CODES
+    counts = [r["count"] for r in rows]
+    assert counts == sorted(counts, reverse=True), "expected descending order"
+    assert all(c > 500 for c in counts)
+    assert all(c < 15000 for c in counts)
+    assert sum(counts) > 95000
+
+
+def test_number_of_pictured_monuments_by_adm1(spark):
+    repo = MonumentRepo(spark, Lang.EN)
+    rows = repo.number_of_pictured_monuments_by_adm(AdmLevel.ADM1).collect()
+    codes = {r.adm["code"] for r in rows}
+    assert codes == ADM1_CODES
+    counts = [r["count"] for r in rows]
+    assert counts == sorted(counts, reverse=True), "expected descending order"
+    assert all(c > 400 for c in counts)
+    assert all(c < 5000 for c in counts)
+    assert sum(counts) > 35000
+
+
+def test_percentage_of_pictured_monuments_by_adm1(spark):
+    repo = MonumentRepo(spark, Lang.EN)
+    rows = repo.percentage_of_pictured_monuments_by_adm(AdmLevel.ADM1).collect()
+    codes = {r.adm["code"] for r in rows}
+    assert codes == ADM1_CODES
+    percentages = [r.percentage for r in rows]
+    assert percentages == sorted(percentages, reverse=True), "expected descending order"
+    # spot-check: percentage == 100 * part / all within 0.01 tolerance
+    for row in rows:
+        expected = 100.0 * row.part / row.all
+        assert abs(row.percentage - expected) < 0.01, f"wrong percentage for {row.adm}"

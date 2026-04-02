@@ -93,3 +93,51 @@ class MonumentRepo:
                 .withColumn("adm2", F.substring(F.col("code"), 1, 6))
                 .withColumn("adm3", F.substring(F.col("code"), 1, 9))
                 .withColumnsRenamed({"municipality_name": "municipality", "code": "adm4"}))
+
+    def group_by_adm(self, df: DataFrame, adm_level: AdmLevel) -> DataFrame:
+        adm_col = F.col(adm_level.value.lower())
+        return (df.groupBy(adm_col)
+                .count()
+                .join(
+                    self._populated_place_repo.adm_names(adm_level),
+                    adm_col == F.col("code")
+                )
+                .select(
+                    F.struct(F.col("code"), F.col("name")).alias("adm"),
+                    F.col("count")
+                )
+                .orderBy(F.col("count").desc()))
+
+    def number_of_monuments_by_adm(self, adm_level: AdmLevel) -> DataFrame:
+        return self.group_by_adm(self.joined_with_katotth(), adm_level)
+
+    def number_of_pictured_monuments_by_adm(self, adm_level: AdmLevel) -> DataFrame:
+        return self.group_by_adm(
+            self.joined_with_katotth().filter(F.col("image").isNotNull()),
+            adm_level
+        )
+
+    def percentage_of_pictured_monuments_by_adm(self, adm_level: AdmLevel) -> DataFrame:
+        adm_col = F.col(adm_level.value.lower())
+        return (self.joined_with_katotth()
+                .select(
+                    adm_col,
+                    F.when(F.col("image").isNotNull(), 1).otherwise(0).alias("pictured")
+                )
+                .groupBy(adm_col)
+                .agg(
+                    F.sum("pictured").alias("pictured"),
+                    F.count("pictured").alias("count")
+                )
+                .join(
+                    self._populated_place_repo.adm_names(adm_level),
+                    adm_col == F.col("code")
+                )
+                .withColumn("percentage", F.lit(100.0) * F.col("pictured") / F.col("count"))
+                .select(
+                    F.struct(F.col("code"), F.col("name")).alias("adm"),
+                    F.col("count").alias("all"),
+                    F.col("pictured").alias("part"),
+                    F.col("percentage")
+                )
+                .orderBy(F.col("percentage").desc()))

@@ -36,7 +36,9 @@ def clean_municipality_col(c: Column) -> Column:
         ("місто", ""),
         ("с\\.", ""),
         ("С\\.", ""),
-        ("сел\\.", ""),      # village abbreviation with dot - must be before generic dot removal
+        ("сел\\.", ""),      # village abbreviation with dot — placed before generic dot removal
+                             # (intentional improvement over Scala: Scala's literal .replace ordering
+                             #  means "сел." becomes "сел" rather than being fully removed)
         ("\\.", ""),         # remove all remaining dots
         ("село", ""),
         ("смт", ""),

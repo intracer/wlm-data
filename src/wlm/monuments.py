@@ -25,7 +25,7 @@ class MonumentRepo:
         return (self._spark.read
                 .option("header", "true")
                 .csv(self._path)
-                .drop("adm2"))
+                .drop("adm2"))  # raw CSV adm2 is unreliable; derived properly from id in _with_koatuu_from_id_df
 
     def with_koatuu_from_id(self) -> DataFrame:
         return self._with_koatuu_from_id_df(self.dataframe())
@@ -85,6 +85,8 @@ class MonumentRepo:
                     (F.substring(F.col("adm2"), 1, 5) == F.col("koatuuPrefix")) &
                     (F.col("municipality") == F.col("municipality_name"))
                 )
+                # Drop adm3 here even though Scala doesn't: in Scala the stale null adm3 is
+                # silently overwritten by the second join's withColumn. Dropping explicitly is cleaner.
                 .drop("koatuuPrefix", "municipality", "adm2", "adm3", "adm4", "municipality_name")
                 .join(
                     adm4_names,

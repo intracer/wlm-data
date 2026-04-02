@@ -1,4 +1,3 @@
-import datetime
 from pyspark.sql import Row
 from pyspark.sql.types import StructType, StructField, StringType, TimestampType
 import pytest
@@ -105,7 +104,6 @@ def test_windowed_agg_smoke_streaming(spark, empty_adm_names, tmp_path):
     input_dir = tmp_path / "images"
     input_dir.mkdir()
     checkpoint_dir = tmp_path / "checkpoint"
-    output_dir = tmp_path / "output"
 
     with open(input_dir / "batch1.csv", "w") as f:
         f.write("author,monument,region,upload_date_ts\n")

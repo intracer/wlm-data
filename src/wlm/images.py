@@ -46,3 +46,50 @@ def transform(df: DataFrame) -> DataFrame:
             .filter(F.col("monument") != "")
             .withColumn("region", F.regexp_extract(F.col("monument"), r"^(\d+)", 1))
             .select("author", "monument", "region", "upload_date_ts"))
+
+
+def cumulative_agg(df: DataFrame, adm_names_df: DataFrame) -> DataFrame:
+    """
+    Cumulative aggregation: approximate distinct monuments per (author, region).
+    Mirrors Queries.cumulativeAgg in the Scala codebase.
+    """
+    return (df
+            .groupBy("author", "region")
+            .agg(F.approx_count_distinct("monument").alias("monuments_pictured"))
+            .join(
+                adm_names_df,
+                F.concat(F.lit("UA"), F.col("region")) == F.col("code"),
+                "left"
+            )
+            .drop("code", "region")
+            .withColumnRenamed("name", "region_name")
+            .select("author", "region_name", "monuments_pictured")
+            .sort(F.col("monuments_pictured").desc()))
+
+
+def windowed_agg(
+    df: DataFrame,
+    adm_names_df: DataFrame,
+    window_duration: str,
+    watermark_duration: str,
+) -> DataFrame:
+    """
+    Windowed aggregation: approximate distinct monuments per (window, author, region).
+    Mirrors Queries.windowedAgg in the Scala codebase.
+    """
+    return (df
+            .withWatermark("upload_date_ts", watermark_duration)
+            .groupBy(
+                F.window(F.col("upload_date_ts"), window_duration),
+                F.col("author"),
+                F.col("region")
+            )
+            .agg(F.approx_count_distinct("monument").alias("monuments_pictured"))
+            .join(
+                adm_names_df,
+                F.concat(F.lit("UA"), F.col("region")) == F.col("code"),
+                "left"
+            )
+            .drop("code", "region")
+            .withColumnRenamed("name", "region_name")
+            .select("window", "author", "region_name", "monuments_pictured"))

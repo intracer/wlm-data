@@ -1,6 +1,7 @@
 import sys
 import os
 import glob
+from datetime import datetime, timezone
 
 sys.path.insert(0, "src")
 
@@ -15,6 +16,23 @@ RANGE_START = "2025-10-01T00:00:00Z"
 RANGE_END   = "2025-11-01T00:00:00Z"  # exclusive — stop processing after Oct 31
 CHECKPOINT  = "checkpoints/recent_changes.json"
 OUTPUT      = "output/recent_changes"
+
+def _parse(ts: str) -> datetime:
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+_range_start_dt = _parse(RANGE_START)
+_range_end_dt   = _parse(RANGE_END)
+_total_seconds  = (_range_end_dt - _range_start_dt).total_seconds()
+
+def _progress(current_ts: str) -> str:
+    elapsed = (_parse(current_ts) - _range_start_dt).total_seconds()
+    pct = elapsed / _total_seconds * 100
+    days_done = elapsed / 86400
+    days_total = _total_seconds / 86400
+    bar_len = 30
+    filled = int(bar_len * elapsed / _total_seconds)
+    bar = "█" * filled + "░" * (bar_len - filled)
+    return f"[{bar}] {pct:.1f}%  ({days_done:.0f}/{days_total:.0f} days)"
 
 spark = (SparkSession.builder
          .master("local")
@@ -36,11 +54,14 @@ client = RecentChangesClient(CHECKPOINT, since=RANGE_START)
 effective_since = client._effective_since()
 
 if effective_since and effective_since >= RANGE_END:
-    print(f"All days processed (checkpoint={effective_since!r} >= range_end={RANGE_END!r}). Nothing to do.")
+    print(f"All days processed. {_progress(RANGE_END)}")
     spark.stop()
     sys.exit(0)
 
-print(f"Fetching window: rcstart={effective_since!r}, rcend=auto (+1 day, capped at {RANGE_END})")
+# Show progress before fetch
+since_for_progress = effective_since or RANGE_START
+print(f"Progress before this run: {_progress(since_for_progress)}")
+print(f"Window: {since_for_progress}  →  +1 day (capped at {RANGE_END})")
 
 # Auto-compute rcend = min(since + 1 day, RANGE_END)
 records, token, rcend = client.fetch_with_token()
@@ -49,11 +70,15 @@ records, token, rcend = client.fetch_with_token()
 if rcend and rcend > RANGE_END:
     rcend = RANGE_END
 
-print(f"Raw records: {len(records)}, rcend={rcend!r}, last_token={token!r}")
+matched_count = sum(
+    1 for r in records
+    if lookup.source_type(r.get("wiki", ""), r.get("title", "")) is not None
+)
+print(f"Raw records: {len(records)}  matched: {matched_count}")
 
 writer = RecentChangesWriter(spark, OUTPUT, CHECKPOINT)
 writer.write(records, lookup, token, next_start=rcend)
-print("Write complete. Checkpoint updated.")
+print(f"Progress after  this run: {_progress(rcend or RANGE_END)}")
 
 result = spark.read.format("delta").load(OUTPUT)
 print(f"Delta table total rows: {result.count()}")

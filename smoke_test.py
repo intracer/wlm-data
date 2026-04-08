@@ -10,7 +10,7 @@ _DELTA_JAR = os.path.join(_IVY_CACHE, "io.delta", "delta-spark_2.12", "jars", "d
 _STORAGE_JAR = os.path.join(_IVY_CACHE, "io.delta", "delta-storage", "jars", "delta-storage-3.2.0.jar")
 
 from pyspark.sql import SparkSession
-from wlm.recent_changes import LookupSet, RecentChangesClient, RecentChangesWriter
+from wlm.recent_changes import LookupSet, RecentChangesClient, RecentChangesWriter, _WIKI_NS_COMBOS
 
 RANGE_START = "2026-03-10T00:00:00Z"
 RANGE_END   = "2026-04-10T00:00:00Z"  # exclusive — 31 days from RANGE_START
@@ -64,26 +64,28 @@ print(f"Lookup entries: {len(lookup._map)}")
 # from the previous run, which is the start of this run's window.
 client = RecentChangesClient(CHECKPOINT, since=RANGE_START)
 effective_since = client._effective_since()
+wiki_idx = client._effective_wiki_idx()
 
-if effective_since and effective_since >= RANGE_END:
-    print(f"All days processed. {_progress(RANGE_END)}")
+if effective_since and effective_since >= RANGE_END and wiki_idx == 0:
+    print(f"All hours processed. {_progress(RANGE_END)}")
     spark.stop()
     sys.exit(0)
 
 # Show progress before fetch
 since_for_progress = effective_since or RANGE_START
+wiki, ns = _WIKI_NS_COMBOS[wiki_idx]
 print(f"Progress before this run: {_progress(since_for_progress)}")
 print(f"Window: {since_for_progress}  →  +1 hour (capped at {RANGE_END})")
+print(f"Wiki [{wiki_idx+1}/{len(_WIKI_NS_COMBOS)}]: {wiki}  ns={ns}")
 
-# Auto-compute rcend = min(since + 1 day, RANGE_END)
 _window_start = since_for_progress
 
 def _on_page(wiki: str, latest_ts, total: int) -> None:
     if latest_ts:
         bar = _intra_day_bar(_window_start, RANGE_END, latest_ts)
-        print(f"\r  {wiki:30s}  day {bar}  {total:>5} records", end="", flush=True)
+        print(f"\r  {wiki:30s}  {bar}  {total:>5} records", end="", flush=True)
 
-records, token, rcend = client.fetch_with_token(on_page=_on_page)
+records, token, rcend, wiki_idx = client.fetch_with_token(on_page=_on_page)
 print()  # end the \r line
 
 # Cap rcend at RANGE_END so we never overshoot
@@ -94,11 +96,17 @@ matched_count = sum(
     1 for r in records
     if lookup.source_type(r.get("wiki", ""), r.get("title", "")) is not None
 )
-print(f"Raw records: {len(records)}  matched: {matched_count}")
+print(f"Raw records: {records} ")
+print(f"Raw records size: {len(records)}  matched size: {matched_count}")
+
+# Advance to next wiki combo. If this was the last combo (wraps to 0),
+# advance the timestamp to rcend so the next run fetches the next hour.
+next_wiki_idx = (wiki_idx + 1) % len(_WIKI_NS_COMBOS)
+next_start = rcend if next_wiki_idx == 0 else since_for_progress
 
 writer = RecentChangesWriter(spark, OUTPUT, CHECKPOINT)
-writer.write(records, lookup, token, next_start=rcend)
-print(f"Progress after  this run: {_progress(rcend or RANGE_END)}")
+writer.write(records, lookup, token, next_start=next_start, wiki_idx=next_wiki_idx)
+print(f"Progress after  this run: {_progress(next_start or RANGE_END)}")
 
 if os.path.exists(OUTPUT):
     result = spark.read.format("delta").load(OUTPUT)

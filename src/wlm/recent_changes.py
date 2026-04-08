@@ -65,10 +65,10 @@ class LookupSet:
 
 
 _WIKI_NS_COMBOS = [
-    ("uk.wikipedia.org", "0"),
-    ("en.wikipedia.org", "0"),
-    ("commons.wikimedia.org", "14"),
-    ("commons.wikimedia.org", "6"),
+    ("uk.wikipedia.org", "0")
+    # ("en.wikipedia.org", "0"),
+    # ("commons.wikimedia.org", "14"),
+    # ("commons.wikimedia.org", "6"),
 ]
 
 _RC_PROPS = "ids|title|type|user|userid|comment|parsedcomment|timestamp|sizes|redirect|tags|sha1|loginfo"
@@ -94,20 +94,30 @@ class RecentChangesClient:
             data = json.load(f)
         return data.get("timestamp") or None
 
+    def _effective_wiki_idx(self) -> int:
+        if not os.path.exists(self._checkpoint_path):
+            return 0
+        with open(self._checkpoint_path) as f:
+            data = json.load(f)
+        return int(data.get("wiki_idx", 0))
+
     def fetch(self) -> list[dict]:
-        records, _, _ = self.fetch_with_token()
+        records, _, _, _ = self.fetch_with_token()
         return records
 
     def fetch_with_token(
         self,
         on_page: Optional[Callable[[str, Optional[str], int], None]] = None,
-    ) -> tuple[list[dict], Optional[str], Optional[str]]:
-        """Returns (records, last_rccontinue_token, rcend).
+    ) -> tuple[list[dict], Optional[str], Optional[str], int]:
+        """Returns (records, last_rccontinue_token, rcend, wiki_idx).
 
-        rcend is the exclusive upper bound of the time window fetched.
-        It is auto-computed as since + 1 day when since is set and rcend was not
-        provided to the constructor. Pass rcend to RecentChangesWriter.write()
-        as next_start so the checkpoint advances to the end of this window.
+        Fetches one wiki/namespace combo per call (determined by wiki_idx in
+        the checkpoint). rcend is auto-computed as since + 1 hour when since is
+        set and rcend was not provided to the constructor.
+
+        Pass rcend to RecentChangesWriter.write() as next_start. Pass wiki_idx
+        so the checkpoint advances to the next combo (or wraps to 0 and advances
+        the timestamp).
 
         on_page: optional callback invoked after each API page with
             (wiki, latest_timestamp_on_page, total_records_fetched_so_far).
@@ -116,6 +126,7 @@ class RecentChangesClient:
         all_records: list[dict] = []
         last_token: Optional[str] = None
         since = self._effective_since()
+        wiki_idx = self._effective_wiki_idx()
 
         # Auto-compute a 1-hour window when since is set and rcend not provided.
         rcend = self._rcend
@@ -123,54 +134,54 @@ class RecentChangesClient:
             dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
             rcend = (dt + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        for wiki, ns in _WIKI_NS_COMBOS:
-            params: dict = {
-                "action": "query",
-                "list": "recentchanges",
-                "rcnamespace": ns,
-                "rcprop": _RC_PROPS,
-                "rclimit": "500",
-                "rcdir": "newer",
-                "format": "json",
-            }
-            if since:
-                params["rcstart"] = since
-            if rcend:
-                params["rcend"] = rcend
+        wiki, ns = _WIKI_NS_COMBOS[wiki_idx]
+        params: dict = {
+            "action": "query",
+            "list": "recentchanges",
+            "rcnamespace": ns,
+            "rcprop": _RC_PROPS,
+            "rclimit": "500",
+            "rcdir": "newer",
+            "format": "json",
+        }
+        if since:
+            params["rcstart"] = since
+        if rcend:
+            params["rcend"] = rcend
 
-            while True:
-                resp = requests.get(
-                    f"https://{wiki}/w/api.php",
-                    params=params,
-                    headers={"User-Agent": "WLM-RecentChanges/1.0 (https://github.com/wlm-data; bot) python-requests"},
-                )
-                resp.raise_for_status()
-                data = resp.json()
+        while True:
+            resp = requests.get(
+                f"https://{wiki}/w/api.php",
+                params=params,
+                headers={"User-Agent": "WLM-RecentChanges/1.0 (https://github.com/wlm-data; bot) python-requests"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
 
-                if "error" in data:
-                    raise RuntimeError(data["error"].get("info", str(data["error"])))
+            if "error" in data:
+                raise RuntimeError(data["error"].get("info", str(data["error"])))
 
-                page_records = data.get("query", {}).get("recentchanges", [])
-                latest_ts_on_page: Optional[str] = None
-                for rc in page_records:
-                    record = dict(rc)  # Copy to avoid mutating the API response
-                    record["wiki"] = wiki
-                    all_records.append(record)
-                    ts = record.get("timestamp")
-                    if ts and (latest_ts_on_page is None or ts > latest_ts_on_page):
-                        latest_ts_on_page = ts
+            page_records = data.get("query", {}).get("recentchanges", [])
+            latest_ts_on_page: Optional[str] = None
+            for rc in page_records:
+                record = dict(rc)  # Copy to avoid mutating the API response
+                record["wiki"] = wiki
+                all_records.append(record)
+                ts = record.get("timestamp")
+                if ts and (latest_ts_on_page is None or ts > latest_ts_on_page):
+                    latest_ts_on_page = ts
 
-                if on_page is not None:
-                    on_page(wiki, latest_ts_on_page, len(all_records))
+            if on_page is not None:
+                on_page(wiki, latest_ts_on_page, len(all_records))
 
-                if "continue" in data:
-                    token = data["continue"]["rccontinue"]
-                    last_token = token
-                    params["rccontinue"] = token
-                else:
-                    break
+            if "continue" in data:
+                token = data["continue"]["rccontinue"]
+                last_token = token
+                params["rccontinue"] = token
+            else:
+                break
 
-        return all_records, last_token, rcend
+        return all_records, last_token, rcend, wiki_idx
 
 
 RC_SCHEMA = StructType([
@@ -241,13 +252,15 @@ class RecentChangesWriter:
         lookup: LookupSet,
         last_token: Optional[str],
         next_start: Optional[str] = None,
+        wiki_idx: int = 0,
     ) -> None:
         """Filter, enrich, and append matched records to the Delta table.
 
-        next_start: if provided, stored as the checkpoint timestamp so the next
-        run begins from this point. Pass the rcend returned by fetch_with_token()
-        to advance the window by exactly one day. If omitted, the latest timestamp
-        seen in the fetched records is used instead.
+        next_start: the timestamp to store in the checkpoint. Pass rcend to
+        advance the window when this was the last wiki combo; pass the current
+        since timestamp to keep the same hour window for the next combo.
+        wiki_idx: the combo index just processed. Stored in the checkpoint so
+        the next run picks up the following combo.
         """
         matched = []
         latest_ts: Optional[str] = None
@@ -264,8 +277,8 @@ class RecentChangesWriter:
             df.write.format("delta").mode("append").save(self._output_path)
 
         checkpoint_ts = next_start if next_start is not None else (latest_ts or "")
-        self._write_checkpoint(last_token or "", checkpoint_ts)
+        self._write_checkpoint(last_token or "", checkpoint_ts, wiki_idx)
 
-    def _write_checkpoint(self, token: str, timestamp: str) -> None:
+    def _write_checkpoint(self, token: str, timestamp: str, wiki_idx: int = 0) -> None:
         with open(self._checkpoint_path, "w") as f:
-            json.dump({"rccontinue": token, "timestamp": timestamp}, f)
+            json.dump({"rccontinue": token, "timestamp": timestamp, "wiki_idx": wiki_idx}, f)

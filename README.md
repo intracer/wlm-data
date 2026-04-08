@@ -276,32 +276,66 @@ Community Edition does not support Scala — all notebooks are Python.
 - A running cluster. Community Edition provides a single-node cluster; create one via
   **Compute → Create cluster** (any runtime ≥ 13.x / Spark 3.5 works).
 
-### 3b. Upload data to DBFS
+### 3b. Upload data to a Unity Catalog volume
 
-The notebooks read data from DBFS paths under `dbfs:/FileStore/wlm-data/`.
-Upload the four CSV sources once via **Data → Add Data → DBFS** (or the Databricks CLI).
+The notebooks read CSV files from a Unity Catalog volume. Create a volume and upload
+the four source files before running any notebook.
 
-| Local path | DBFS destination |
+> DBFS (`dbfs:/FileStore/…`) is deprecated and unavailable in new Databricks accounts.
+> Use Unity Catalog volumes instead.
+
+**Create a volume (once)**  
+
+1. In the Databricks sidebar, click **Catalog**.
+2. Navigate to your catalog and schema (e.g. **main** → **default**).
+3. Click **Create** → **Create volume**, name it `wlm_data`, and click **Create**.
+
+This gives you the volume path `/Volumes/main/default/wlm_data/`.
+
+> Replace `main` and `default` with your own catalog and schema names if they differ.
+
+**Upload files via the UI**
+
+1. Open the volume in Catalog Explorer.
+2. Click **Upload to this volume**.
+3. Upload each file, creating subdirectories (`monuments/`, `humdata/`, `katotth/`, `images/`) as needed.
+
+| Local path | Volume destination |
 |---|---|
-| `data/wiki/monuments/wlm-ua-monuments.csv` | `dbfs:/FileStore/wlm-data/monuments/wlm-ua-monuments.csv` |
-| `data/humdata/ukraine-populated-places.csv` | `dbfs:/FileStore/wlm-data/humdata/ukraine-populated-places.csv` |
-| `data/katotth/katotth_koatuu.csv` | `dbfs:/FileStore/wlm-data/katotth/katotth_koatuu.csv` |
-| `data/images/wlm-UA-YYYY-images.csv` (one or more) | `dbfs:/FileStore/wlm-data/images/` |
+| `data/wiki/monuments/wlm-ua-monuments.csv` | `/Volumes/main/default/wlm_data/monuments/wlm-ua-monuments.csv` |
+| `data/humdata/ukraine-populated-places.csv` | `/Volumes/main/default/wlm_data/humdata/ukraine-populated-places.csv` |
+| `data/katotth/katotth_koatuu.csv` | `/Volumes/main/default/wlm_data/katotth/katotth_koatuu.csv` |
+| `data/images/wlm-UA-YYYY-images.csv` (one or more) | `/Volumes/main/default/wlm_data/images/` |
 
-To upload via the Databricks CLI (optional):
+**Upload via the Databricks CLI v2 (optional)**
+
+Install the [Databricks CLI](https://docs.databricks.com/dev-tools/cli/install.html)
+(v0.200+ — not the legacy `databricks-cli` pip package):
 
 ```bash
-pip install databricks-cli
-databricks configure --token      # enter your workspace URL and personal access token
+# macOS
+brew install databricks/tap/databricks
+# Other platforms: see the install guide linked above
+```
+
+Configure authentication:
+
+```bash
+databricks configure        # enter your workspace URL and a personal access token
+```
+
+Copy files to the volume:
+
+```bash
 databricks fs cp data/wiki/monuments/wlm-ua-monuments.csv \
-    dbfs:/FileStore/wlm-data/monuments/wlm-ua-monuments.csv
+    dbfs:/Volumes/main/default/wlm_data/monuments/wlm-ua-monuments.csv --overwrite
 databricks fs cp data/humdata/ukraine-populated-places.csv \
-    dbfs:/FileStore/wlm-data/humdata/ukraine-populated-places.csv
+    dbfs:/Volumes/main/default/wlm_data/humdata/ukraine-populated-places.csv --overwrite
 databricks fs cp data/katotth/katotth_koatuu.csv \
-    dbfs:/FileStore/wlm-data/katotth/katotth_koatuu.csv
+    dbfs:/Volumes/main/default/wlm_data/katotth/katotth_koatuu.csv --overwrite
 # Copy one year of images as a starting point
 databricks fs cp data/images/wlm-UA-2024-images.csv \
-    dbfs:/FileStore/wlm-data/images/wlm-UA-2024-images.csv
+    dbfs:/Volumes/main/default/wlm_data/images/wlm-UA-2024-images.csv --overwrite
 ```
 
 ### 3c. Import the repo into Databricks Repos
@@ -332,13 +366,13 @@ After cloning, the workspace will contain:
 
 1. Open `notebooks/monuments.py` in the Databricks workspace.
 2. Attach it to your cluster (**Connect** button in the top bar).
-3. Optionally edit the config cell at the top to change DBFS paths:
+3. Optionally edit the config cell at the top to change volume paths:
 
    ```python
-   MONUMENTS_CSV  = "dbfs:/FileStore/wlm-data/monuments/wlm-ua-monuments.csv"
-   HUMDATA_CSV    = "dbfs:/FileStore/wlm-data/humdata/ukraine-populated-places.csv"
-   KATOTTH_CSV    = "dbfs:/FileStore/wlm-data/katotth/katotth_koatuu.csv"
-   OUTPUT_DIR     = "dbfs:/FileStore/wlm-data/output/monuments-with-cities"
+   MONUMENTS_CSV  = "/Volumes/main/default/wlm_data/monuments/wlm-ua-monuments.csv"
+   HUMDATA_CSV    = "/Volumes/main/default/wlm_data/humdata/ukraine-populated-places.csv"
+   KATOTTH_CSV    = "/Volumes/main/default/wlm_data/katotth/katotth_koatuu.csv"
+   OUTPUT_DIR     = "/Volumes/main/default/wlm_data/output/monuments-with-cities"
    ```
 
 4. Click **Run All**.
@@ -349,7 +383,7 @@ pictured-monument percentage table for all 27 Ukrainian regions.
 Read the output back later:
 
 ```python
-df = spark.read.parquet("dbfs:/FileStore/wlm-data/output/monuments-with-cities")
+df = spark.read.parquet("/Volumes/main/default/wlm_data/output/monuments-with-cities")
 df.show(10, truncate=False)
 ```
 
@@ -360,10 +394,10 @@ df.show(10, truncate=False)
 3. Edit the config cell as needed:
 
    ```python
-   INPUT_DIR      = "dbfs:/FileStore/wlm-data/images"
-   HUMDATA_CSV    = "dbfs:/FileStore/wlm-data/humdata/ukraine-populated-places.csv"
-   OUTPUT_DIR     = "dbfs:/FileStore/wlm-data/output"
-   CHECKPOINT_DIR = "dbfs:/FileStore/wlm-data/checkpoints"
+   INPUT_DIR      = "/Volumes/main/default/wlm_data/images"
+   HUMDATA_CSV    = "/Volumes/main/default/wlm_data/humdata/ukraine-populated-places.csv"
+   OUTPUT_DIR     = "/Volumes/main/default/wlm_data/output"
+   CHECKPOINT_DIR = "/Volumes/main/default/wlm_data/checkpoints"
    WINDOW_DUR     = "1 hour"      # time window size for windowed aggregation
    WATERMARK_DUR  = "10 minutes"  # late-data tolerance
    RUN_CUMULATIVE = False         # set True to run the cumulative query instead
@@ -372,19 +406,19 @@ df.show(10, truncate=False)
 4. Click **Run All**.
 
 The notebook processes all CSV files currently in `INPUT_DIR` and terminates.
-To process newly added files, upload them to `dbfs:/FileStore/wlm-data/images/` and
+To process newly added files, upload them to `/Volumes/main/default/wlm_data/images/` and
 re-run the notebook. Delete the checkpoint directory first if you want a clean rerun:
 
 ```python
-dbutils.fs.rm("dbfs:/FileStore/wlm-data/checkpoints/windowed", recurse=True)
+dbutils.fs.rm("/Volumes/main/default/wlm_data/checkpoints/windowed", recurse=True)
 ```
 
 **Output locations:**
 
 | Mode | Parquet output |
 |---|---|
-| Windowed (default) | `dbfs:/FileStore/wlm-data/output/windowed/` |
-| Cumulative | `dbfs:/FileStore/wlm-data/output/cumulative/` |
+| Windowed (default) | `/Volumes/main/default/wlm_data/output/windowed/` |
+| Cumulative | `/Volumes/main/default/wlm_data/output/cumulative/` |
 
 ### 3f. Run the test suite on Databricks
 

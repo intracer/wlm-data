@@ -27,12 +27,12 @@ _total_seconds  = (_range_end_dt - _range_start_dt).total_seconds()
 def _progress(current_ts: str) -> str:
     elapsed = (_parse(current_ts) - _range_start_dt).total_seconds()
     pct = elapsed / _total_seconds * 100
-    days_done = elapsed / 86400
-    days_total = _total_seconds / 86400
+    hours_done  = elapsed / 3600
+    hours_total = _total_seconds / 3600
     bar_len = 30
     filled = int(bar_len * elapsed / _total_seconds)
     bar = "█" * filled + "░" * (bar_len - filled)
-    return f"[{bar}] {pct:.1f}%  ({days_done:.0f}/{days_total:.0f} days)"
+    return f"[{bar}] {pct:.1f}%  ({hours_done:.0f}/{hours_total:.0f} h)"
 
 def _intra_day_bar(window_start: str, window_end: str, current_ts: str) -> str:
     start = _parse(window_start)
@@ -73,7 +73,7 @@ if effective_since and effective_since >= RANGE_END:
 # Show progress before fetch
 since_for_progress = effective_since or RANGE_START
 print(f"Progress before this run: {_progress(since_for_progress)}")
-print(f"Window: {since_for_progress}  →  +1 day (capped at {RANGE_END})")
+print(f"Window: {since_for_progress}  →  +1 hour (capped at {RANGE_END})")
 
 # Auto-compute rcend = min(since + 1 day, RANGE_END)
 _window_start = since_for_progress

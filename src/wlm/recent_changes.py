@@ -117,11 +117,11 @@ class RecentChangesClient:
         last_token: Optional[str] = None
         since = self._effective_since()
 
-        # Auto-compute a 1-day window when since is set and rcend not provided.
+        # Auto-compute a 1-hour window when since is set and rcend not provided.
         rcend = self._rcend
         if since and not rcend:
             dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
-            rcend = (dt + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            rcend = (dt + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         for wiki, ns in _WIKI_NS_COMBOS:
             params: dict = {

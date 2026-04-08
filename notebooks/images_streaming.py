@@ -7,7 +7,15 @@
 #     (trigger=availableNow processes all available files then terminates)
 
 import sys
-sys.path.insert(0, "src")
+import os
+
+cwd = os.getcwd()
+joined = os.path.join(os.getcwd(), "..", "src")
+
+print("cwd: " + cwd)
+print("joined: " + joined)
+
+sys.path.insert(0, joined)
 
 # COMMAND ----------
 
@@ -17,10 +25,10 @@ from wlm.images import WlmSchema, transform, windowed_agg, cumulative_agg
 # COMMAND ----------
 # Config — edit as needed
 
-INPUT_DIR      = "dbfs:/FileStore/wlm-data/images"
-HUMDATA_CSV    = "dbfs:/FileStore/wlm-data/humdata/ukraine-populated-places.csv"
-OUTPUT_DIR     = "dbfs:/FileStore/wlm-data/output"
-CHECKPOINT_DIR = "dbfs:/FileStore/wlm-data/checkpoints"
+INPUT_DIR      = "dbfs:/Volumes/workspace/default/wlm_data/images"
+HUMDATA_CSV    = "dbfs:/Volumes/workspace/default/wlm_data/humdata/ukraine-populated-places.csv"
+OUTPUT_DIR     = "dbfs:/Volumes/workspace/default/wlm_data/output"
+CHECKPOINT_DIR = "dbfs:/Volumes/workspace/default/wlm_data/checkpoints"
 WINDOW_DUR     = "1 hour"
 WATERMARK_DUR  = "10 minutes"
 

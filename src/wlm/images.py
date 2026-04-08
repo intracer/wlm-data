@@ -41,7 +41,11 @@ def transform(df: DataFrame) -> DataFrame:
       4. Select author, monument, region, upload_date_ts.
     """
     return (df
-            .withColumn("upload_date_ts", F.to_timestamp(F.col("upload_date")))
+            .withColumn("upload_date_ts", F.coalesce(
+                F.try_to_timestamp(F.col("upload_date"), F.lit("yyyy-MM-dd'T'HH:mm:ssXXX")),
+                F.try_to_timestamp(F.col("upload_date"), F.lit("yyyy-MM-dd'T'HH:mmXXX")),
+                F.try_to_timestamp(F.col("upload_date"), F.lit("yyyy-MM-dd")),
+            ))
             .withColumn("monument", F.explode(F.split(F.col("monument_id"), ";")))
             .filter(F.col("monument") != "")
             .withColumn("region", F.regexp_extract(F.col("monument"), r"^(\d+)", 1))

@@ -41,4 +41,4 @@ print(f"Written to {OUTPUT_DIR}")
 # COMMAND ----------
 # Show pictured monument percentage by region (ADM1)
 
-repo.percentage_of_pictured_monuments_by_adm(AdmLevel.ADM1).show(30, truncate=False)
+display(repo.percentage_of_pictured_monuments_by_adm(AdmLevel.ADM1, df=spark.read.parquet(OUTPUT_DIR)))

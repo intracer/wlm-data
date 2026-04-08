@@ -119,9 +119,11 @@ class MonumentRepo:
             adm_level
         )
 
-    def percentage_of_pictured_monuments_by_adm(self, adm_level: AdmLevel) -> DataFrame:
+    def percentage_of_pictured_monuments_by_adm(self, adm_level: AdmLevel, df: DataFrame = None) -> DataFrame:
         adm_col = F.col(adm_level.value.lower())
-        return (self.joined_with_katotth()
+        if df is None:
+            df = self.joined_with_katotth()
+        return (df
                 .select(
                     adm_col,
                     F.when(F.col("image").isNotNull(), 1).otherwise(0).alias("pictured")

@@ -42,17 +42,15 @@ class LookupSet:
     def _load_monuments(self, path: str) -> None:
         with open(path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
+            has_gallery = "gallery" in (reader.fieldnames or [])
+            if not has_gallery:
+                warnings.warn("monuments CSV has no 'gallery' column — skipping")
             for row in reader:
-                # place_article (lowest priority — add first so higher-priority types overwrite)
                 self._set("uk.wikipedia.org", row.get("name", ""), "place_article")
-                # monument_article
                 self._set("uk.wikipedia.org", row.get("monument_article", ""), "monument_article")
-                # commons_category
                 self._set("commons.wikimedia.org", row.get("commonscat", ""), "commons_category")
-                if "gallery" in reader.fieldnames:
+                if has_gallery:
                     self._set("commons.wikimedia.org", row.get("gallery", ""), "commons_category")
-                else:
-                    warnings.warn("monuments CSV has no 'gallery' column — skipping")
 
     def _load_images(self, path: str) -> None:
         with open(path, newline="", encoding="utf-8") as f:

@@ -207,3 +207,123 @@ def test_client_returns_last_continue_token(tmp_path):
         client = RecentChangesClient(checkpoint_path)
         _, token = client.fetch_with_token()
     assert token == "FINAL_TOKEN|99"
+
+
+# RecentChangesWriter tests
+
+import shutil
+from wlm.recent_changes import RecentChangesWriter, LookupSet
+
+
+def _make_record(wiki, title, rcid=1, source_type_hint=None):
+    return {
+        "wiki": wiki,
+        "rcid": rcid,
+        "title": title,
+        "type": "edit",
+        "ns": 0,
+        "timestamp": "2024-10-01T12:00:00Z",
+        "user": "TestUser",
+        "userid": 42,
+        "comment": "test edit",
+        "parsedcomment": "test edit",
+        "sizes": {"old": 100, "new": 200},
+        "revid": 10,
+        "old_revid": 9,
+        "pageid": 5,
+        "redirect": False,
+        "tags": ["mobile edit"],
+        "sha1": "deadbeef",
+        "logtype": "",
+        "logaction": "",
+        "logparams": {},
+    }
+
+
+def test_writer_filters_unmatched(spark, tmp_path):
+    """Records not in LookupSet are excluded from the Delta table."""
+    monuments_csv = tmp_path / "monuments.csv"
+    monuments_csv.write_text(
+        "country,lang,id,adm0,adm2,name,address,municipality,lat,lon,image,"
+        "commonscat,source,changed,monument_article,wd_item,gallery,registrant_id,type,year_of_construction\n"
+        "ua,uk,80-361-0001,ua,,Київ,,Київ,,,,,,,Церква,Q1,,,А,1889\n"
+    )
+    lookup = LookupSet(str(monuments_csv), [])
+    records = [
+        _make_record("uk.wikipedia.org", "Церква", rcid=1),    # matched
+        _make_record("uk.wikipedia.org", "Unrelated", rcid=2),  # not matched
+    ]
+    output_path = str(tmp_path / "delta_out")
+    checkpoint_path = str(tmp_path / "checkpoint.json")
+    writer = RecentChangesWriter(spark, output_path, checkpoint_path)
+    writer.write(records, lookup, last_token=None)
+
+    result = spark.read.format("delta").load(output_path)
+    titles = {row.title for row in result.collect()}
+    assert titles == {"Церква"}
+
+
+def test_writer_appends_across_runs(spark, tmp_path):
+    """Second write appends rows — does not overwrite."""
+    monuments_csv = tmp_path / "monuments.csv"
+    monuments_csv.write_text(
+        "country,lang,id,adm0,adm2,name,address,municipality,lat,lon,image,"
+        "commonscat,source,changed,monument_article,wd_item,gallery,registrant_id,type,year_of_construction\n"
+        "ua,uk,80-361-0001,ua,,Київ,,Київ,,,,,,,Церква,Q1,,,А,1889\n"
+        "ua,uk,80-361-0002,ua,,Дніпро,,Дніпро,,,,,,,Собор,Q2,,,А,1900\n"
+    )
+    lookup = LookupSet(str(monuments_csv), [])
+    output_path = str(tmp_path / "delta_out")
+    checkpoint_path = str(tmp_path / "checkpoint.json")
+    writer = RecentChangesWriter(spark, output_path, checkpoint_path)
+
+    writer.write([_make_record("uk.wikipedia.org", "Церква", rcid=1)], lookup, last_token=None)
+    writer.write([_make_record("uk.wikipedia.org", "Собор", rcid=2)], lookup, last_token=None)
+
+    result = spark.read.format("delta").load(output_path)
+    assert result.count() == 2
+
+
+def test_writer_updates_checkpoint(spark, tmp_path):
+    """Checkpoint file is written after successful write."""
+    monuments_csv = tmp_path / "monuments.csv"
+    monuments_csv.write_text(
+        "country,lang,id,adm0,adm2,name,address,municipality,lat,lon,image,"
+        "commonscat,source,changed,monument_article,wd_item,gallery,registrant_id,type,year_of_construction\n"
+        "ua,uk,80-361-0001,ua,,Київ,,Київ,,,,,,,Церква,Q1,,,А,1889\n"
+    )
+    lookup = LookupSet(str(monuments_csv), [])
+    output_path = str(tmp_path / "delta_out")
+    checkpoint_path = str(tmp_path / "checkpoint.json")
+    writer = RecentChangesWriter(spark, output_path, checkpoint_path)
+    writer.write(
+        [_make_record("uk.wikipedia.org", "Церква", rcid=1)],
+        lookup,
+        last_token="TOKEN|42",
+    )
+    with open(checkpoint_path) as f:
+        cp = json.load(f)
+    assert cp["rccontinue"] == "TOKEN|42"
+    assert cp["timestamp"] == "2024-10-01T12:00:00Z"
+
+
+def test_writer_skips_delta_write_on_empty_match(spark, tmp_path):
+    """Empty match set: no Delta table created, checkpoint still updated."""
+    monuments_csv = tmp_path / "monuments.csv"
+    monuments_csv.write_text(
+        "country,lang,id,adm0,adm2,name,address,municipality,lat,lon,image,"
+        "commonscat,source,changed,monument_article,wd_item,gallery,registrant_id,type,year_of_construction\n"
+    )
+    lookup = LookupSet(str(monuments_csv), [])
+    output_path = str(tmp_path / "delta_out")
+    checkpoint_path = str(tmp_path / "checkpoint.json")
+    writer = RecentChangesWriter(spark, output_path, checkpoint_path)
+    writer.write(
+        [_make_record("uk.wikipedia.org", "Nonexistent", rcid=1)],
+        lookup,
+        last_token="TOKEN|0",
+    )
+    assert not os.path.exists(output_path)
+    with open(checkpoint_path) as f:
+        cp = json.load(f)
+    assert cp["rccontinue"] == "TOKEN|0"

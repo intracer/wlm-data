@@ -135,3 +135,92 @@ class RecentChangesClient:
                     break
 
         return all_records, last_token
+
+
+RC_SCHEMA = StructType([
+    StructField("rcid", LongType(), True),
+    StructField("type", StringType(), True),
+    StructField("ns", IntegerType(), True),
+    StructField("title", StringType(), True),
+    StructField("timestamp", StringType(), True),
+    StructField("user", StringType(), True),
+    StructField("userid", LongType(), True),
+    StructField("comment", StringType(), True),
+    StructField("parsedcomment", StringType(), True),
+    StructField("old_len", IntegerType(), True),
+    StructField("new_len", IntegerType(), True),
+    StructField("revid", LongType(), True),
+    StructField("old_revid", LongType(), True),
+    StructField("pageid", LongType(), True),
+    StructField("redirect", BooleanType(), True),
+    StructField("tags", ArrayType(StringType()), True),
+    StructField("sha1", StringType(), True),
+    StructField("logtype", StringType(), True),
+    StructField("logaction", StringType(), True),
+    StructField("logparams", StringType(), True),
+    StructField("wiki", StringType(), True),
+    StructField("source_type", StringType(), True),
+])
+
+
+def _flatten_record(record: dict, source_type: str) -> dict:
+    sizes = record.get("sizes") or {}
+    return {
+        "rcid": record.get("rcid"),
+        "type": record.get("type"),
+        "ns": record.get("ns"),
+        "title": record.get("title"),
+        "timestamp": record.get("timestamp"),
+        "user": record.get("user"),
+        "userid": record.get("userid"),
+        "comment": record.get("comment"),
+        "parsedcomment": record.get("parsedcomment"),
+        "old_len": sizes.get("old"),
+        "new_len": sizes.get("new"),
+        "revid": record.get("revid"),
+        "old_revid": record.get("old_revid"),
+        "pageid": record.get("pageid"),
+        "redirect": record.get("redirect"),
+        "tags": record.get("tags") or [],
+        "sha1": record.get("sha1"),
+        "logtype": record.get("logtype"),
+        "logaction": record.get("logaction"),
+        "logparams": json.dumps(record.get("logparams") or {}),
+        "wiki": record.get("wiki"),
+        "source_type": source_type,
+    }
+
+
+class RecentChangesWriter:
+    """Filters, enriches, and appends matched recent-change records to a Delta table."""
+
+    def __init__(self, spark: SparkSession, output_path: str, checkpoint_path: str):
+        self._spark = spark
+        self._output_path = output_path
+        self._checkpoint_path = checkpoint_path
+
+    def write(
+        self,
+        records: list[dict],
+        lookup: LookupSet,
+        last_token: Optional[str],
+    ) -> None:
+        matched = []
+        latest_ts: Optional[str] = None
+        for rec in records:
+            st = lookup.source_type(rec.get("wiki", ""), rec.get("title", ""))
+            if st is not None:
+                matched.append(_flatten_record(rec, st))
+            ts = rec.get("timestamp")
+            if ts and (latest_ts is None or ts > latest_ts):
+                latest_ts = ts
+
+        if matched:
+            df = self._spark.createDataFrame(matched, schema=RC_SCHEMA)
+            df.write.format("delta").mode("append").save(self._output_path)
+
+        self._write_checkpoint(last_token or "", latest_ts or "")
+
+    def _write_checkpoint(self, token: str, timestamp: str) -> None:
+        with open(self._checkpoint_path, "w") as f:
+            json.dump({"rccontinue": token, "timestamp": timestamp}, f)

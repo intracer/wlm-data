@@ -74,38 +74,6 @@ virtual environment activated.
 The pipeline reads the monuments CSV, joins it with geographic data, and prints
 pictured-monument statistics by region.
 
-```python
-# run_monuments.py  (create this file at the repo root, or paste into a REPL)
-import sys
-sys.path.insert(0, "src")
-
-from pyspark.sql import SparkSession
-from wlm.common import AdmLevel, Lang
-from wlm.monuments import MonumentRepo
-
-spark = (SparkSession.builder
-         .master("local[*]")
-         .appName("wlm-monuments")
-         .config("spark.ui.enabled", "false")
-         .getOrCreate())
-spark.sparkContext.setLogLevel("WARN")
-
-repo = MonumentRepo(spark, Lang.EN)
-
-# Write joined dataset to parquet
-repo.joined_with_katotth().write.mode("overwrite").parquet("output/monuments-with-cities")
-print("Written to output/monuments-with-cities/")
-
-# Print statistics
-print("\n=== Monuments with pictures by region (ADM1) ===")
-repo.number_of_pictured_monuments_by_adm(AdmLevel.ADM1).show(30, truncate=False)
-
-print("\n=== Percentage of pictured monuments by region (ADM1) ===")
-repo.percentage_of_pictured_monuments_by_adm(AdmLevel.ADM1).show(30, truncate=False)
-
-spark.stop()
-```
-
 Run it:
 
 ```bash
@@ -141,66 +109,6 @@ Two aggregation modes:
 
 `trigger(availableNow=True)` is used in both modes: the pipeline processes all files
 currently in the input directory and then terminates. Re-run to pick up new files.
-
-```python
-# run_images.py  (create this file at the repo root, or paste into a REPL)
-import sys
-sys.path.insert(0, "src")
-
-from pyspark.sql import SparkSession
-from wlm.common import AdmLevel, Lang, PopulatedPlaceRepo
-from wlm.images import WlmSchema, transform, windowed_agg, cumulative_agg
-
-INPUT_DIR      = "data/images"
-OUTPUT_DIR     = "output"
-CHECKPOINT_DIR = "checkpoints"
-WINDOW_DUR     = "1 hour"
-WATERMARK_DUR  = "10 minutes"
-RUN_CUMULATIVE = False   # set to True for the cumulative query
-
-spark = (SparkSession.builder
-         .master("local[*]")
-         .appName("wlm-images")
-         .config("spark.ui.enabled", "false")
-         .getOrCreate())
-spark.sparkContext.setLogLevel("WARN")
-
-adm_names_df = PopulatedPlaceRepo(spark, Lang.EN).adm_names(AdmLevel.ADM1)
-
-raw_stream = (spark.readStream
-              .schema(WlmSchema.csv_schema)
-              .option("header", "true")
-              .csv(INPUT_DIR))
-
-transformed = transform(raw_stream)
-
-if RUN_CUMULATIVE:
-    query = (cumulative_agg(transformed, adm_names_df)
-             .writeStream
-             .outputMode("complete")
-             .option("checkpointLocation", f"{CHECKPOINT_DIR}/cumulative")
-             .trigger(availableNow=True)
-             .foreachBatch(lambda df, _: (
-                 df.show(truncate=False),
-                 df.write.mode("overwrite").parquet(f"{OUTPUT_DIR}/cumulative")
-             ))
-             .start())
-else:
-    query = (windowed_agg(transformed, adm_names_df, WINDOW_DUR, WATERMARK_DUR)
-             .writeStream
-             .outputMode("append")
-             .option("checkpointLocation", f"{CHECKPOINT_DIR}/windowed")
-             .trigger(availableNow=True)
-             .foreachBatch(lambda df, _: (
-                 df.sort("monuments_pictured", ascending=False).show(truncate=False),
-                 df.write.mode("append").parquet(f"{OUTPUT_DIR}/windowed")
-             ))
-             .start())
-
-query.awaitTermination()
-print("Done.")
-spark.stop()
-```
 
 Run it:
 

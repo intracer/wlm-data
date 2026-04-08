@@ -41,11 +41,12 @@ def transform(df: DataFrame) -> DataFrame:
       4. Select author, monument, region, upload_date_ts.
     """
     return (df
-            .withColumn("upload_date_ts", F.coalesce(
-                F.try_to_timestamp(F.col("upload_date"), F.lit("yyyy-MM-dd'T'HH:mm:ssXXX")),
-                F.try_to_timestamp(F.col("upload_date"), F.lit("yyyy-MM-dd'T'HH:mmXXX")),
-                F.try_to_timestamp(F.col("upload_date"), F.lit("yyyy-MM-dd")),
-            ))
+            .withColumn("_upload_date_norm",
+                # Inject missing seconds: "T15:42Z" → "T15:42:00Z"
+                F.regexp_replace(F.col("upload_date"), r"T(\d{2}:\d{2})([Z+\-])", r"T$1:00$2"))
+            .withColumn("upload_date_ts", F.try_to_timestamp(
+                F.col("_upload_date_norm"), F.lit("yyyy-MM-dd'T'HH:mm:ssXXX")))
+            .drop("_upload_date_norm")
             .withColumn("monument", F.explode(F.split(F.col("monument_id"), ";")))
             .filter(F.col("monument") != "")
             .withColumn("region", F.regexp_extract(F.col("monument"), r"^(\d+)", 1))

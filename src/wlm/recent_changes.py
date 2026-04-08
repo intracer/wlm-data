@@ -86,13 +86,13 @@ class RecentChangesClient:
         self._rcend = rcend
 
     def _effective_since(self) -> Optional[str]:
-        if self._since:
-            return self._since
-        if not os.path.exists(self._checkpoint_path):
-            return None
-        with open(self._checkpoint_path) as f:
-            data = json.load(f)
-        return data.get("timestamp") or None
+        if os.path.exists(self._checkpoint_path):
+            with open(self._checkpoint_path) as f:
+                data = json.load(f)
+            ts = data.get("timestamp")
+            if ts:
+                return ts
+        return self._since or None
 
     def _effective_wiki_idx(self) -> int:
         if not os.path.exists(self._checkpoint_path):
@@ -128,11 +128,11 @@ class RecentChangesClient:
         since = self._effective_since()
         wiki_idx = self._effective_wiki_idx()
 
-        # Auto-compute a 1-hour window when since is set and rcend not provided.
+        # Auto-compute a 1-day window when since is set and rcend not provided.
         rcend = self._rcend
         if since and not rcend:
             dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
-            rcend = (dt + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            rcend = (dt + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         wiki, ns = _WIKI_NS_COMBOS[wiki_idx]
         params: dict = {
@@ -227,7 +227,7 @@ def _flatten_record(record: dict, source_type: str) -> dict:
         "revid": record.get("revid"),
         "old_revid": record.get("old_revid"),
         "pageid": record.get("pageid"),
-        "redirect": record.get("redirect"),
+        "redirect": "redirect" in record,
         "tags": record.get("tags") or [],
         "sha1": record.get("sha1"),
         "logtype": record.get("logtype"),

@@ -167,11 +167,9 @@ def test_client_reads_checkpoint(tmp_path):
     assert any(p.get("rcstart") == "2024-06-01T12:00:00Z" for p in calls)
 
 
-def test_client_since_overrides_checkpoint(tmp_path):
-    """--since parameter overrides checkpoint timestamp."""
+def test_client_since_used_as_fallback_when_no_checkpoint(tmp_path):
+    """since= is used when no checkpoint file exists."""
     checkpoint_path = str(tmp_path / "checkpoint.json")
-    with open(checkpoint_path, "w") as f:
-        json.dump({"rccontinue": "", "timestamp": "2024-01-01T00:00:00Z"}, f)
     page = {"query": {"recentchanges": []}}
     calls = []
     def fake_get(url, params=None, **kwargs):
@@ -181,6 +179,22 @@ def test_client_since_overrides_checkpoint(tmp_path):
         client = RecentChangesClient(checkpoint_path, since="2024-09-01T00:00:00Z")
         client.fetch()
     assert any(p.get("rcstart") == "2024-09-01T00:00:00Z" for p in calls)
+
+
+def test_client_checkpoint_wins_over_since(tmp_path):
+    """Checkpoint timestamp takes priority over since= so the window advances."""
+    checkpoint_path = str(tmp_path / "checkpoint.json")
+    with open(checkpoint_path, "w") as f:
+        json.dump({"rccontinue": "", "timestamp": "2024-06-15T00:00:00Z", "wiki_idx": 0}, f)
+    page = {"query": {"recentchanges": []}}
+    calls = []
+    def fake_get(url, params=None, **kwargs):
+        calls.append(params or {})
+        return _mock_response(page)
+    with patch("wlm.recent_changes.requests.get", side_effect=fake_get):
+        client = RecentChangesClient(checkpoint_path, since="2024-01-01T00:00:00Z")
+        client.fetch()
+    assert any(p.get("rcstart") == "2024-06-15T00:00:00Z" for p in calls)
 
 
 def test_client_raises_on_api_error(tmp_path):

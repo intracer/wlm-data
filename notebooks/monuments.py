@@ -4,8 +4,8 @@
 #   - Repo cloned via Databricks Repos (Git integration)
 #   - CSV files uploaded to DBFS at the paths below
 
-import sys
-sys.path.insert(0, "src")
+import sys, os
+sys.path.insert(0, os.path.join(os.getcwd(), "..", "src"))
 
 # COMMAND ----------
 
@@ -15,10 +15,10 @@ from wlm.monuments import MonumentRepo
 # COMMAND ----------
 # Config — edit DBFS paths as needed
 
-MONUMENTS_CSV  = "dbfs:/FileStore/wlm-data/monuments/wlm-ua-monuments.csv"
-HUMDATA_CSV    = "dbfs:/FileStore/wlm-data/humdata/ukraine-populated-places.csv"
-KATOTTH_CSV    = "dbfs:/FileStore/wlm-data/katotth/katotth_koatuu.csv"
-OUTPUT_DIR     = "dbfs:/FileStore/wlm-data/output/monuments-with-cities"
+MONUMENTS_CSV  = "dbfs:/Volumes/workspace/default/wlm_data/monuments/wlm-ua-monuments.csv"
+HUMDATA_CSV    = "dbfs:/Volumes/workspace/default/wlm_data/humdata/ukraine-populated-places.csv"
+KATOTTH_CSV    = "dbfs:/Volumes/workspace/default/wlm_data/katotth/katotth_koatuu.csv"
+OUTPUT_DIR     = "dbfs:/Volumes/workspace/default/wlm_data/output/monuments-with-cities"
 
 # COMMAND ----------
 # spark is pre-created by Databricks — no SparkSession.builder needed

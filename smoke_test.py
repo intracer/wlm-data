@@ -100,8 +100,11 @@ writer = RecentChangesWriter(spark, OUTPUT, CHECKPOINT)
 writer.write(records, lookup, token, next_start=rcend)
 print(f"Progress after  this run: {_progress(rcend or RANGE_END)}")
 
-result = spark.read.format("delta").load(OUTPUT)
-print(f"Delta table total rows: {result.count()}")
-result.orderBy("timestamp", ascending=False).show(10, truncate=False)
+if os.path.exists(OUTPUT):
+    result = spark.read.format("delta").load(OUTPUT)
+    print(f"Delta table total rows: {result.count()}")
+    result.orderBy("timestamp", ascending=False).show(10, truncate=False)
+else:
+    print("No matched records yet — Delta table not created.")
 
 spark.stop()

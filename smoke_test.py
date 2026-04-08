@@ -12,8 +12,8 @@ _STORAGE_JAR = os.path.join(_IVY_CACHE, "io.delta", "delta-storage", "jars", "de
 from pyspark.sql import SparkSession
 from wlm.recent_changes import LookupSet, RecentChangesClient, RecentChangesWriter
 
-RANGE_START = "2025-10-01T00:00:00Z"
-RANGE_END   = "2025-11-01T00:00:00Z"  # exclusive — stop processing after Oct 31
+RANGE_START = "2026-03-01T00:00:00Z"
+RANGE_END   = "2026-04-01T00:00:00Z"  # exclusive — stop after March 31
 CHECKPOINT  = "checkpoints/recent_changes.json"
 OUTPUT      = "output/recent_changes"
 

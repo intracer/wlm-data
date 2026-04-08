@@ -14,10 +14,12 @@ sys.path.insert(0, os.path.join(os.getcwd(), "..", "src"))
 from wlm.recent_changes import LookupSet, RecentChangesClient, RecentChangesWriter
 
 # COMMAND ----------
-# Config — edit DBFS paths as needed
+# Config — edit paths as needed.
+# MONUMENTS_CSV and IMAGES_GLOB use /dbfs/ FUSE mount paths (required for Python open()).
+# OUTPUT_PATH uses dbfs:/ URI (required for Spark Delta write).
 
-MONUMENTS_CSV   = "dbfs:/Volumes/workspace/default/wlm_data/monuments/wlm-ua-monuments.csv"
-IMAGES_GLOB     = "dbfs:/Volumes/workspace/default/wlm_data/images"
+MONUMENTS_CSV   = "/dbfs/Volumes/workspace/default/wlm_data/monuments/wlm-ua-monuments.csv"
+IMAGES_GLOB     = "/dbfs/Volumes/workspace/default/wlm_data/images"
 CHECKPOINT_PATH = "checkpoints/recent_changes.json"
 OUTPUT_PATH     = "dbfs:/tables/recent_changes"
 

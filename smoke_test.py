@@ -34,6 +34,18 @@ def _progress(current_ts: str) -> str:
     bar = "█" * filled + "░" * (bar_len - filled)
     return f"[{bar}] {pct:.1f}%  ({days_done:.0f}/{days_total:.0f} days)"
 
+def _intra_day_bar(window_start: str, window_end: str, current_ts: str) -> str:
+    start = _parse(window_start)
+    end   = _parse(window_end)
+    cur   = _parse(current_ts)
+    total = (end - start).total_seconds()
+    elapsed = max(0.0, min((cur - start).total_seconds(), total))
+    pct = elapsed / total * 100 if total else 0
+    bar_len = 20
+    filled = int(bar_len * elapsed / total) if total else 0
+    bar = "█" * filled + "░" * (bar_len - filled)
+    return f"[{bar}] {pct:.0f}%"
+
 spark = (SparkSession.builder
          .master("local")
          .appName("rc-smoke")
@@ -64,7 +76,15 @@ print(f"Progress before this run: {_progress(since_for_progress)}")
 print(f"Window: {since_for_progress}  →  +1 day (capped at {RANGE_END})")
 
 # Auto-compute rcend = min(since + 1 day, RANGE_END)
-records, token, rcend = client.fetch_with_token()
+_window_start = since_for_progress
+
+def _on_page(wiki: str, latest_ts, total: int) -> None:
+    if latest_ts:
+        bar = _intra_day_bar(_window_start, RANGE_END, latest_ts)
+        print(f"\r  {wiki:30s}  day {bar}  {total:>5} records", end="", flush=True)
+
+records, token, rcend = client.fetch_with_token(on_page=_on_page)
+print()  # end the \r line
 
 # Cap rcend at RANGE_END so we never overshoot
 if rcend and rcend > RANGE_END:

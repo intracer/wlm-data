@@ -3,7 +3,7 @@ import json
 import os
 import warnings
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Callable, Optional
 import requests
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
@@ -98,13 +98,20 @@ class RecentChangesClient:
         records, _, _ = self.fetch_with_token()
         return records
 
-    def fetch_with_token(self) -> tuple[list[dict], Optional[str], Optional[str]]:
+    def fetch_with_token(
+        self,
+        on_page: Optional[Callable[[str, Optional[str], int], None]] = None,
+    ) -> tuple[list[dict], Optional[str], Optional[str]]:
         """Returns (records, last_rccontinue_token, rcend).
 
         rcend is the exclusive upper bound of the time window fetched.
         It is auto-computed as since + 1 day when since is set and rcend was not
         provided to the constructor. Pass rcend to RecentChangesWriter.write()
         as next_start so the checkpoint advances to the end of this window.
+
+        on_page: optional callback invoked after each API page with
+            (wiki, latest_timestamp_on_page, total_records_fetched_so_far).
+            latest_timestamp_on_page is None if the page returned no records.
         """
         all_records: list[dict] = []
         last_token: Optional[str] = None
@@ -143,10 +150,18 @@ class RecentChangesClient:
                 if "error" in data:
                     raise RuntimeError(data["error"].get("info", str(data["error"])))
 
-                for rc in data.get("query", {}).get("recentchanges", []):
+                page_records = data.get("query", {}).get("recentchanges", [])
+                latest_ts_on_page: Optional[str] = None
+                for rc in page_records:
                     record = dict(rc)  # Copy to avoid mutating the API response
                     record["wiki"] = wiki
                     all_records.append(record)
+                    ts = record.get("timestamp")
+                    if ts and (latest_ts_on_page is None or ts > latest_ts_on_page):
+                        latest_ts_on_page = ts
+
+                if on_page is not None:
+                    on_page(wiki, latest_ts_on_page, len(all_records))
 
                 if "continue" in data:
                     token = data["continue"]["rccontinue"]

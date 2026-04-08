@@ -205,7 +205,7 @@ def test_client_returns_last_continue_token(tmp_path):
     responses = [_mock_response(page), _mock_response(page2)] * 4
     with patch("wlm.recent_changes.requests.get", side_effect=responses):
         client = RecentChangesClient(checkpoint_path)
-        _, token, _ = client.fetch_with_token()
+        _, token, _, _ = client.fetch_with_token()
     assert token == "FINAL_TOKEN|99"
 
 

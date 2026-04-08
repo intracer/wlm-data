@@ -4,7 +4,7 @@ import os
 import warnings
 from typing import Optional
 import requests
-from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import SparkSession
 from pyspark.sql.types import (
     ArrayType, BooleanType, IntegerType, LongType,
     StringType, StructField, StructType,

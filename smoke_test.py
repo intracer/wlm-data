@@ -27,12 +27,12 @@ _total_seconds  = (_range_end_dt - _range_start_dt).total_seconds()
 def _progress(current_ts: str) -> str:
     elapsed = (_parse(current_ts) - _range_start_dt).total_seconds()
     pct = elapsed / _total_seconds * 100
-    hours_done  = elapsed / 3600
-    hours_total = _total_seconds / 3600
+    days_done = elapsed / 86400
+    days_total = _total_seconds / 86400
     bar_len = 30
     filled = int(bar_len * elapsed / _total_seconds)
     bar = "█" * filled + "░" * (bar_len - filled)
-    return f"[{bar}] {pct:.1f}%  ({hours_done:.0f}/{hours_total:.0f} h)"
+    return f"[{bar}] {pct:.1f}%  ({days_done:.0f}/{days_total:.0f} days)"
 
 def _intra_day_bar(window_start: str, window_end: str, current_ts: str) -> str:
     start = _parse(window_start)
@@ -66,8 +66,8 @@ client = RecentChangesClient(CHECKPOINT, since=RANGE_START)
 effective_since = client._effective_since()
 wiki_idx = client._effective_wiki_idx()
 
-if effective_since and effective_since >= RANGE_END and wiki_idx == 0:
-    print(f"All hours processed. {_progress(RANGE_END)}")
+if effective_since and effective_since >= RANGE_END:
+    print(f"All days processed. {_progress(RANGE_END)}")
     spark.stop()
     sys.exit(0)
 
@@ -96,7 +96,7 @@ matched_count = sum(
     1 for r in records
     if lookup.source_type(r.get("wiki", ""), r.get("title", "")) is not None
 )
-print(f"Raw records: {records} ")
+# print(f"Raw records: {records} ")
 print(f"Raw records size: {len(records)}  matched size: {matched_count}")
 
 # Advance to next wiki combo. If this was the last combo (wraps to 0),

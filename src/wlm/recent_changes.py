@@ -2,6 +2,7 @@ import csv
 import json
 import os
 import warnings
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import requests
 from pyspark.sql import SparkSession
@@ -79,9 +80,10 @@ class RecentChangesClient:
     Does NOT update the checkpoint — that is RecentChangesWriter's responsibility.
     """
 
-    def __init__(self, checkpoint_path: str, since: Optional[str] = None):
+    def __init__(self, checkpoint_path: str, since: Optional[str] = None, rcend: Optional[str] = None):
         self._checkpoint_path = checkpoint_path
         self._since = since
+        self._rcend = rcend
 
     def _effective_since(self) -> Optional[str]:
         if self._since:
@@ -93,13 +95,26 @@ class RecentChangesClient:
         return data.get("timestamp") or None
 
     def fetch(self) -> list[dict]:
-        records, _ = self.fetch_with_token()
+        records, _, _ = self.fetch_with_token()
         return records
 
-    def fetch_with_token(self) -> tuple[list[dict], Optional[str]]:
+    def fetch_with_token(self) -> tuple[list[dict], Optional[str], Optional[str]]:
+        """Returns (records, last_rccontinue_token, rcend).
+
+        rcend is the exclusive upper bound of the time window fetched.
+        It is auto-computed as since + 1 day when since is set and rcend was not
+        provided to the constructor. Pass rcend to RecentChangesWriter.write()
+        as next_start so the checkpoint advances to the end of this window.
+        """
         all_records: list[dict] = []
         last_token: Optional[str] = None
         since = self._effective_since()
+
+        # Auto-compute a 1-day window when since is set and rcend not provided.
+        rcend = self._rcend
+        if since and not rcend:
+            dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            rcend = (dt + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         for wiki, ns in _WIKI_NS_COMBOS:
             params: dict = {
@@ -113,9 +128,15 @@ class RecentChangesClient:
             }
             if since:
                 params["rcstart"] = since
+            if rcend:
+                params["rcend"] = rcend
 
             while True:
-                resp = requests.get(f"https://{wiki}/w/api.php", params=params)
+                resp = requests.get(
+                    f"https://{wiki}/w/api.php",
+                    params=params,
+                    headers={"User-Agent": "WLM-RecentChanges/1.0 (https://github.com/wlm-data; bot) python-requests"},
+                )
                 resp.raise_for_status()
                 data = resp.json()
 
@@ -134,7 +155,7 @@ class RecentChangesClient:
                 else:
                     break
 
-        return all_records, last_token
+        return all_records, last_token, rcend
 
 
 RC_SCHEMA = StructType([
@@ -204,7 +225,15 @@ class RecentChangesWriter:
         records: list[dict],
         lookup: LookupSet,
         last_token: Optional[str],
+        next_start: Optional[str] = None,
     ) -> None:
+        """Filter, enrich, and append matched records to the Delta table.
+
+        next_start: if provided, stored as the checkpoint timestamp so the next
+        run begins from this point. Pass the rcend returned by fetch_with_token()
+        to advance the window by exactly one day. If omitted, the latest timestamp
+        seen in the fetched records is used instead.
+        """
         matched = []
         latest_ts: Optional[str] = None
         for rec in records:
@@ -219,7 +248,8 @@ class RecentChangesWriter:
             df = self._spark.createDataFrame(matched, schema=RC_SCHEMA)
             df.write.format("delta").mode("append").save(self._output_path)
 
-        self._write_checkpoint(last_token or "", latest_ts or "")
+        checkpoint_ts = next_start if next_start is not None else (latest_ts or "")
+        self._write_checkpoint(last_token or "", checkpoint_ts)
 
     def _write_checkpoint(self, token: str, timestamp: str) -> None:
         with open(self._checkpoint_path, "w") as f:

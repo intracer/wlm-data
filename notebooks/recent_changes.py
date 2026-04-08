@@ -3,8 +3,8 @@
 # Prerequisites:
 #   - Repo cloned via Databricks Repos (Git integration)
 #   - CSV files uploaded to DBFS at the paths below
-#   - Run each time you want to ingest new recent changes
-#     (each run continues from where the last one left off via checkpoints/)
+#   - Run each time you want to ingest one day of recent changes
+#     (each run advances the window by one day via checkpoints/)
 
 import sys, os
 sys.path.insert(0, os.path.join(os.getcwd(), "..", "src"))
@@ -23,11 +23,11 @@ IMAGES_GLOB     = "/dbfs/Volumes/workspace/default/wlm_data/images"
 CHECKPOINT_PATH = "checkpoints/recent_changes.json"
 OUTPUT_PATH     = "dbfs:/tables/recent_changes"
 
-# Optional: override resume timestamp (ISO 8601). Leave as None to use checkpoint.
-SINCE = None  # e.g. "2024-09-01T00:00:00Z"
+RANGE_START = "2025-10-01T00:00:00Z"  # first run starts here
+RANGE_END   = "2025-11-01T00:00:00Z"  # exclusive — stop after Oct 31
 
 # COMMAND ----------
-# Build the images file list from DBFS
+# Build the images file list
 
 import glob as _glob
 images_paths = _glob.glob(f"{IMAGES_GLOB}/wlm-UA-*-images.csv")
@@ -39,20 +39,33 @@ lookup = LookupSet(MONUMENTS_CSV, images_paths)
 print(f"Lookup set: {len(lookup._map)} entries")
 
 # COMMAND ----------
-# Fetch recent changes from MediaWiki API
+# Check if all days have been processed
 
-client = RecentChangesClient(CHECKPOINT_PATH, since=SINCE)
-records, last_token = client.fetch_with_token()
-print(f"Fetched {len(records)} raw records")
+client = RecentChangesClient(CHECKPOINT_PATH, since=RANGE_START)
+effective_since = client._effective_since()
 
-# COMMAND ----------
-# Filter, enrich, and append matched records to Delta table
+if effective_since and effective_since >= RANGE_END:
+    print(f"All days processed (checkpoint={effective_since!r}). Nothing to do.")
+else:
+    # COMMAND ----------
+    # Fetch one day of recent changes from MediaWiki API
 
-writer = RecentChangesWriter(spark, OUTPUT_PATH, CHECKPOINT_PATH)
-writer.write(records, lookup, last_token)
-print(f"Done. Checkpoint updated.")
+    records, last_token, rcend = client.fetch_with_token()
 
-# COMMAND ----------
-# Preview the Delta table
+    # Cap rcend at RANGE_END so we never overshoot
+    if rcend and rcend > RANGE_END:
+        rcend = RANGE_END
 
-spark.read.format("delta").load(OUTPUT_PATH).orderBy("timestamp", ascending=False).show(20, truncate=False)
+    print(f"Fetched {len(records)} raw records for window ending {rcend!r}")
+
+    # COMMAND ----------
+    # Filter, enrich, and append matched records to Delta table
+
+    writer = RecentChangesWriter(spark, OUTPUT_PATH, CHECKPOINT_PATH)
+    writer.write(records, lookup, last_token, next_start=rcend)
+    print(f"Done. Checkpoint advanced to {rcend!r}.")
+
+    # COMMAND ----------
+    # Preview the Delta table
+
+    spark.read.format("delta").load(OUTPUT_PATH).orderBy("timestamp", ascending=False).show(20, truncate=False)

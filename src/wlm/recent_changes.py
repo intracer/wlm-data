@@ -108,6 +108,7 @@ class RecentChangesClient:
                 "rcnamespace": ns,
                 "rcprop": _RC_PROPS,
                 "rclimit": "500",
+                "rcdir": "newer",
                 "format": "json",
             }
             if since:

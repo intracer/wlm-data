@@ -19,7 +19,7 @@ paths = MonumentPaths(
     katotth_csv="data/katotth/katotth_koatuu.csv",
 )
 
-run_monuments_pipeline(spark, paths, fmt="parquet")
+run_monuments_pipeline(spark, paths, fmt="parquet", fetch=True)
 print("Written to data/processed/spark/monuments/")
 
 spark.stop()

@@ -43,9 +43,15 @@ def run_monuments_pipeline(
     paths: MonumentPaths | None = None,
     fmt: str = "parquet",
     lang: Lang = Lang.EN,
+    fetch: bool = False,
 ) -> None:
     if paths is None:
         paths = MonumentPaths()
+
+    if fetch:
+        from wlm.fetch import fetch_humdata, fetch_monuments
+        fetch_monuments(paths.monuments_csv)
+        fetch_humdata(paths.humdata_csv)
 
     repo = MonumentRepo(
         spark, lang,

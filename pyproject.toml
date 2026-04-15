@@ -2,3 +2,4 @@
 testpaths = ["tests"]
 pythonpath = ["src"]
 filterwarnings = ["ignore::DeprecationWarning"]
+markers = ["integration: marks tests that require network access (deselect with -m 'not integration')"]

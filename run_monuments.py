@@ -3,8 +3,8 @@ import sys
 sys.path.insert(0, "src")
 
 from pyspark.sql import SparkSession
-from wlm.common import AdmLevel, Lang
-from wlm.monuments import MonumentRepo
+
+from wlm.pipeline import MonumentPaths, run_monuments_pipeline
 
 spark = (SparkSession.builder
          .master("local[*]")
@@ -13,17 +13,13 @@ spark = (SparkSession.builder
          .getOrCreate())
 spark.sparkContext.setLogLevel("WARN")
 
-repo = MonumentRepo(spark, Lang.EN)
+paths = MonumentPaths(
+    monuments_csv="data/raw/monuments.csv",
+    humdata_csv="data/raw/humdata.csv",
+    katotth_csv="data/katotth/katotth_koatuu.csv",
+)
 
-# Write joined dataset to parquet
-repo.joined_with_katotth().write.mode("overwrite").parquet("output/monuments-with-cities")
-print("Written to output/monuments-with-cities/")
-
-# Print statistics
-print("\n=== Monuments with pictures by region (ADM1) ===")
-repo.number_of_pictured_monuments_by_adm(AdmLevel.ADM1).show(30, truncate=False)
-
-print("\n=== Percentage of pictured monuments by region (ADM1) ===")
-repo.percentage_of_pictured_monuments_by_adm(AdmLevel.ADM1).show(30, truncate=False)
+run_monuments_pipeline(spark, paths, fmt="parquet")
+print("Written to data/processed/spark/monuments/")
 
 spark.stop()

@@ -2,7 +2,6 @@ import subprocess
 from pathlib import Path
 
 import duckdb
-import pandas as pd
 from dagster import (
     asset,
     AssetExecutionContext,
@@ -10,6 +9,12 @@ from dagster import (
     define_asset_job,
     AssetSelection,
 )
+from pyspark.sql import SparkSession
+
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from wlm.pipeline import ImagePaths, MonumentPaths, run_images_pipeline, run_monuments_pipeline
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = REPO_ROOT / "data" / "raw"
@@ -57,19 +62,47 @@ def humdata_raw(context: AssetExecutionContext):
 
 @asset(deps=[monuments_raw, humdata_raw])
 def spark_output(context: AssetExecutionContext):
-    """Run existing Spark/Scala pipeline via sbt."""
+    """Run PySpark pipeline — writes bronze/silver/gold parquet layers."""
     SPARK_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    result = subprocess.run(
-        ["sbt", f"-Doutput.path={SPARK_OUTPUT_DIR}", "run", str(SPARK_OUTPUT_DIR)],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=600,
-    )
-    context.log.info(result.stdout[-3000:])
-    parquet_files = list(SPARK_OUTPUT_DIR.glob("*.parquet"))
-    context.add_output_metadata({"parquet_files": len(parquet_files), "path": str(SPARK_OUTPUT_DIR)})
+
+    spark = (SparkSession.builder
+             .master("local[*]")
+             .appName("wlm-dagster")
+             .config("spark.ui.enabled", "false")
+             .getOrCreate())
+    spark.sparkContext.setLogLevel("WARN")
+
+    try:
+        monument_paths = MonumentPaths(
+            monuments_csv=str(RAW_DIR / "monuments.csv"),
+            humdata_csv=str(RAW_DIR / "humdata.csv"),
+            katotth_csv=str(REPO_ROOT / "data" / "katotth" / "katotth_koatuu.csv"),
+            bronze_dir=str(SPARK_OUTPUT_DIR / "monuments" / "bronze"),
+            silver_cleaned_dir=str(SPARK_OUTPUT_DIR / "monuments" / "silver" / "cleaned"),
+            silver_with_cities_dir=str(SPARK_OUTPUT_DIR / "monuments" / "silver" / "with_cities"),
+            gold_full_dir=str(SPARK_OUTPUT_DIR / "monuments" / "gold" / "full"),
+            gold_by_adm_dir=str(SPARK_OUTPUT_DIR / "monuments" / "gold" / "by_adm"),
+            gold_pictured_by_adm_dir=str(SPARK_OUTPUT_DIR / "monuments" / "gold" / "pictured_by_adm"),
+        )
+        run_monuments_pipeline(spark, monument_paths, fmt="parquet")
+        context.log.info("Monuments pipeline complete")
+
+        image_paths = ImagePaths(
+            images_dir=str(REPO_ROOT / "data" / "images"),
+            humdata_csv=str(RAW_DIR / "humdata.csv"),
+            bronze_dir=str(SPARK_OUTPUT_DIR / "images" / "bronze"),
+            silver_dir=str(SPARK_OUTPUT_DIR / "images" / "silver"),
+            gold_cumulative_dir=str(SPARK_OUTPUT_DIR / "images" / "gold" / "cumulative"),
+            gold_windowed_dir=str(SPARK_OUTPUT_DIR / "images" / "gold" / "windowed"),
+        )
+        run_images_pipeline(spark, image_paths, fmt="parquet")
+        context.log.info("Images pipeline complete")
+    finally:
+        spark.stop()
+
+    gold_dir = SPARK_OUTPUT_DIR / "monuments" / "gold" / "full"
+    parquet_files = list(gold_dir.glob("*.parquet"))
+    context.add_output_metadata({"gold_parquet_files": len(parquet_files), "gold_path": str(gold_dir)})
 
 
 @asset(deps=[monuments_raw, humdata_raw])
@@ -94,10 +127,11 @@ def compare_outputs(context: AssetExecutionContext):
     """Diff Spark Parquet output against dbt DuckDB gold layer."""
     duckdb_path = DBT_OUTPUT_DIR / "wlm.duckdb"
 
+    gold_spark_dir = SPARK_OUTPUT_DIR / "monuments" / "gold" / "full"
     conn = duckdb.connect()
     spark_df = conn.execute(
         f"SELECT id, adm1, adm2, adm3, adm4, municipality "
-        f"FROM read_parquet('{SPARK_OUTPUT_DIR}/*.parquet') ORDER BY id"
+        f"FROM read_parquet('{gold_spark_dir}/*.parquet') ORDER BY id"
     ).df()
     conn.close()
 

@@ -1,5 +1,6 @@
 # src/wlm/pipeline.py
 from dataclasses import dataclass
+from functools import reduce
 
 import pyspark.sql.functions as F
 from pyspark.sql import DataFrame, SparkSession
@@ -11,6 +12,7 @@ from wlm.monuments import MonumentRepo
 
 @dataclass
 class MonumentPaths:
+    # data/raw/ is produced by scripts/fetch_monuments.py and scripts/convert_humdata.py
     monuments_csv: str = "data/raw/monuments.csv"
     humdata_csv: str = "data/raw/humdata.csv"
     katotth_csv: str = KatotthKoatuuRepo.DEFAULT_PATH
@@ -85,29 +87,35 @@ def run_monuments_pipeline(
 
     # Gold: monument count per adm level (ADM1–ADM4 unioned, level column added)
     adm_levels = [AdmLevel.ADM1, AdmLevel.ADM2, AdmLevel.ADM3, AdmLevel.ADM4]
-    gold_by_adm: DataFrame | None = None
-    for level in adm_levels:
-        df = repo.number_of_monuments_by_adm(level).select(
-            F.lit(level.value).alias("level"),
-            F.col("adm.code").alias("code"),
-            F.col("adm.name").alias("name"),
-            F.col("count").alias("monument_count"),
-        )
-        gold_by_adm = df if gold_by_adm is None else gold_by_adm.union(df)
+    gold_by_adm = reduce(
+        DataFrame.union,
+        (
+            repo.number_of_monuments_by_adm(level).select(
+                F.lit(level.value).alias("level"),
+                F.col("adm.code").alias("code"),
+                F.col("adm.name").alias("name"),
+                F.col("count").alias("monument_count"),
+            )
+            for level in adm_levels
+        ),
+    )
     _write(gold_by_adm, paths.gold_by_adm_dir, fmt)
 
     # Gold: pictured percentage per adm level (ADM1–ADM4 unioned)
-    gold_pictured: DataFrame | None = None
-    for level in adm_levels:
-        df = repo.percentage_of_pictured_monuments_by_adm(level).select(
-            F.lit(level.value).alias("level"),
-            F.col("adm.code").alias("code"),
-            F.col("adm.name").alias("name"),
-            F.col("all"),
-            F.col("part"),
-            F.col("percentage"),
-        )
-        gold_pictured = df if gold_pictured is None else gold_pictured.union(df)
+    gold_pictured = reduce(
+        DataFrame.union,
+        (
+            repo.percentage_of_pictured_monuments_by_adm(level).select(
+                F.lit(level.value).alias("level"),
+                F.col("adm.code").alias("code"),
+                F.col("adm.name").alias("name"),
+                F.col("all"),
+                F.col("part"),
+                F.col("percentage"),
+            )
+            for level in adm_levels
+        ),
+    )
     _write(gold_pictured, paths.gold_pictured_by_adm_dir, fmt)
 
 
@@ -116,7 +124,7 @@ def run_images_pipeline(
     paths: ImagePaths | None = None,
     fmt: str = "parquet",
     lang: Lang = Lang.EN,
-    window_duration: str = "365 days",
+    window_duration: str = "365 days",  # "1 year" unsupported by F.window(); use fixed-day equivalent
     watermark_duration: str = "30 days",
 ) -> None:
     if paths is None:

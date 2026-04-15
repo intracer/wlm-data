@@ -4,8 +4,8 @@ PySpark pipeline for analysing [Wiki Loves Monuments](https://www.wikilovesmonum
 Runs on a local machine (Python + PySpark) and on [Databricks Community Edition](https://community.cloud.databricks.com/).
 
 Two pipelines:
-- **Monuments batch** — joins the WLM Ukraine monuments list with Ukrainian geographic data (KATOTTH/KOATUU mapping) and computes pictured-monument statistics by region.
-- **Images streaming** — processes WLM image upload CSVs using structured streaming and aggregates distinct monuments photographed per author and region, either cumulatively or in time windows.
+- **Monuments batch** — joins the WLM Ukraine monuments list with Ukrainian geographic data (KATOTTH/KOATUU mapping) and writes bronze/silver/gold medallion layers with pictured-monument statistics by region.
+- **Images batch** — processes WLM image upload CSVs and writes bronze/silver/gold medallion layers with distinct monuments photographed per author and region (cumulative and windowed).
 
 ---
 
@@ -14,14 +14,14 @@ Two pipelines:
 - [0. Local development environment](#0-local-development-environment)
 - [1. Run pipelines locally](#1-run-pipelines-locally)
   - [1a. Monuments batch pipeline](#1a-monuments-batch-pipeline)
-  - [1b. Images streaming pipeline](#1b-images-streaming-pipeline)
+  - [1b. Images batch pipeline](#1b-images-batch-pipeline)
 - [2. Run unit tests](#2-run-unit-tests)
 - [3. Databricks setup and run](#3-databricks-setup-and-run)
   - [3a. Prerequisites](#3a-prerequisites)
   - [3b. Upload data to DBFS](#3b-upload-data-to-dbfs)
   - [3c. Import the repo into Databricks Repos](#3c-import-the-repo-into-databricks-repos)
   - [3d. Run the monuments batch notebook](#3d-run-the-monuments-batch-notebook)
-  - [3e. Run the images streaming notebook](#3e-run-the-images-streaming-notebook)
+  - [3e. Run the images batch notebook](#3e-run-the-images-batch-notebook)
   - [3f. Run the test suite on Databricks](#3f-run-the-test-suite-on-databricks)
 
 ---
@@ -53,7 +53,9 @@ pip install -r requirements.txt
 
 ### Data files
 
-The pipelines read CSV files from the `data/` directory (already present in the repo):
+The pipelines read CSV files from two locations:
+
+**Static reference data** (checked into the repo, used by tests):
 
 | Path | Contents |
 |---|---|
@@ -61,6 +63,20 @@ The pipelines read CSV files from the `data/` directory (already present in the 
 | `data/humdata/ukraine-populated-places.csv` | Ukraine populated places with PCODE hierarchy (ADM0–ADM4) |
 | `data/katotth/katotth_koatuu.csv` | KATOTTH ↔ KOATUU administrative code mapping |
 | `data/images/wlm-UA-YYYY-images.csv` | WLM image upload records per year (2012–2025) |
+
+**Fetched raw data** (populated by the fetch scripts, used as pipeline inputs):
+
+| Path | Populated by |
+|---|---|
+| `data/raw/monuments.csv` | `python scripts/fetch_monuments.py` |
+| `data/raw/humdata.csv` | `python scripts/convert_humdata.py` |
+
+Run the fetch scripts once before running the pipelines locally:
+
+```bash
+python scripts/fetch_monuments.py --output data/raw/monuments.csv
+python scripts/convert_humdata.py --output data/raw/humdata.csv
+```
 
 ---
 
@@ -71,48 +87,50 @@ virtual environment activated.
 
 ### 1a. Monuments batch pipeline
 
-The pipeline reads the monuments CSV, joins it with geographic data, and prints
-pictured-monument statistics by region.
-
-```python
-# run_monuments.py  (create this file at the repo root, or paste into a REPL)
-import sys
-sys.path.insert(0, "src")
-
-from pyspark.sql import SparkSession
-from wlm.common import AdmLevel, Lang
-from wlm.monuments import MonumentRepo
-
-spark = (SparkSession.builder
-         .master("local[*]")
-         .appName("wlm-monuments")
-         .config("spark.ui.enabled", "false")
-         .getOrCreate())
-spark.sparkContext.setLogLevel("WARN")
-
-repo = MonumentRepo(spark, Lang.EN)
-
-# Write joined dataset to parquet
-repo.joined_with_katotth().write.mode("overwrite").parquet("output/monuments-with-cities")
-print("Written to output/monuments-with-cities/")
-
-# Print statistics
-print("\n=== Monuments with pictures by region (ADM1) ===")
-repo.number_of_pictured_monuments_by_adm(AdmLevel.ADM1).show(30, truncate=False)
-
-print("\n=== Percentage of pictured monuments by region (ADM1) ===")
-repo.percentage_of_pictured_monuments_by_adm(AdmLevel.ADM1).show(30, truncate=False)
-
-spark.stop()
-```
-
-Run it:
+The pipeline reads the fetched monuments CSV and reference data, then writes a
+bronze/silver/gold medallion layer structure to `data/processed/spark/monuments/`.
 
 ```bash
 python run_monuments.py
 ```
 
-Other available methods on `MonumentRepo`:
+**Output structure:**
+
+```
+data/processed/spark/monuments/
+├── bronze/               # raw CSV as-is
+├── silver/
+│   ├── cleaned/          # derived ADM codes, normalised municipality names
+│   └── with_cities/      # fully resolved ADM1–ADM4 codes + municipality name
+└── gold/
+    ├── full/             # with_cities joined with human-readable ADM names
+    ├── by_adm/           # monument count per ADM level (ADM1–ADM4 unioned)
+    └── pictured_by_adm/  # pictured-monument percentage per ADM level (ADM1–ADM4 unioned)
+```
+
+To customise paths or use different input files, edit `MonumentPaths` in `run_monuments.py`
+or call `run_monuments_pipeline` directly:
+
+```python
+import sys
+sys.path.insert(0, "src")
+
+from pyspark.sql import SparkSession
+from wlm.pipeline import MonumentPaths, run_monuments_pipeline
+
+spark = SparkSession.builder.master("local[*]").appName("wlm").getOrCreate()
+
+paths = MonumentPaths(
+    monuments_csv="data/raw/monuments.csv",
+    humdata_csv="data/raw/humdata.csv",
+    katotth_csv="data/katotth/katotth_koatuu.csv",
+    # override output dirs as needed
+)
+run_monuments_pipeline(spark, paths, fmt="parquet")
+spark.stop()
+```
+
+Available methods on `MonumentRepo` (used internally by the pipeline):
 
 | Method | Description |
 |---|---|
@@ -128,19 +146,11 @@ Other available methods on `MonumentRepo`:
 `adm_level` is an `AdmLevel` enum value: `AdmLevel.ADM1` (region), `AdmLevel.ADM2` (district),
 `AdmLevel.ADM3` (community), `AdmLevel.ADM4` (settlement).
 
-### 1b. Images streaming pipeline
+### 1b. Images batch pipeline
 
-The streaming pipeline reads image CSVs from a watched directory, transforms them into
-one row per monument-image pair, and aggregates distinct monuments photographed per
-author and region.
-
-Two aggregation modes:
-
-- **Windowed** (default) — counts per time window (e.g. 1 hour). Output mode: `append`.
-- **Cumulative** — running total of distinct monuments per author/region. Output mode: `complete`.
-
-`trigger(availableNow=True)` is used in both modes: the pipeline processes all files
-currently in the input directory and then terminates. Re-run to pick up new files.
+The images pipeline reads all WLM image CSVs from `data/images/`, transforms them into
+one row per monument-image pair, and writes bronze/silver/gold layers to
+`data/processed/spark/images/`.
 
 ```python
 # run_images.py  (create this file at the repo root, or paste into a REPL)
@@ -148,15 +158,7 @@ import sys
 sys.path.insert(0, "src")
 
 from pyspark.sql import SparkSession
-from wlm.common import AdmLevel, Lang, PopulatedPlaceRepo
-from wlm.images import WlmSchema, transform, windowed_agg, cumulative_agg
-
-INPUT_DIR      = "data/images"
-OUTPUT_DIR     = "output"
-CHECKPOINT_DIR = "checkpoints"
-WINDOW_DUR     = "1 hour"
-WATERMARK_DUR  = "10 minutes"
-RUN_CUMULATIVE = False   # set to True for the cumulative query
+from wlm.pipeline import ImagePaths, run_images_pipeline
 
 spark = (SparkSession.builder
          .master("local[*]")
@@ -165,40 +167,13 @@ spark = (SparkSession.builder
          .getOrCreate())
 spark.sparkContext.setLogLevel("WARN")
 
-adm_names_df = PopulatedPlaceRepo(spark, Lang.EN).adm_names(AdmLevel.ADM1)
+paths = ImagePaths(
+    images_dir="data/images",
+    humdata_csv="data/raw/humdata.csv",
+)
+run_images_pipeline(spark, paths, fmt="parquet")
+print("Written to data/processed/spark/images/")
 
-raw_stream = (spark.readStream
-              .schema(WlmSchema.csv_schema)
-              .option("header", "true")
-              .csv(INPUT_DIR))
-
-transformed = transform(raw_stream)
-
-if RUN_CUMULATIVE:
-    query = (cumulative_agg(transformed, adm_names_df)
-             .writeStream
-             .outputMode("complete")
-             .option("checkpointLocation", f"{CHECKPOINT_DIR}/cumulative")
-             .trigger(availableNow=True)
-             .foreachBatch(lambda df, _: (
-                 df.show(truncate=False),
-                 df.write.mode("overwrite").parquet(f"{OUTPUT_DIR}/cumulative")
-             ))
-             .start())
-else:
-    query = (windowed_agg(transformed, adm_names_df, WINDOW_DUR, WATERMARK_DUR)
-             .writeStream
-             .outputMode("append")
-             .option("checkpointLocation", f"{CHECKPOINT_DIR}/windowed")
-             .trigger(availableNow=True)
-             .foreachBatch(lambda df, _: (
-                 df.sort("monuments_pictured", ascending=False).show(truncate=False),
-                 df.write.mode("append").parquet(f"{OUTPUT_DIR}/windowed")
-             ))
-             .start())
-
-query.awaitTermination()
-print("Done.")
 spark.stop()
 ```
 
@@ -208,20 +183,26 @@ Run it:
 python run_images.py
 ```
 
-Output parquet files are written to `output/windowed/` or `output/cumulative/`.
-Streaming checkpoints are stored in `checkpoints/` — delete this directory if you
-want to reprocess all files from scratch.
+**Output structure:**
 
-**Output schema (windowed):**
+```
+data/processed/spark/images/
+├── bronze/          # raw CSV records as-is
+├── silver/          # one row per monument-image pair, parsed timestamps
+└── gold/
+    ├── cumulative/  # approx. distinct monuments per author+region (all time)
+    └── windowed/    # approx. distinct monuments per author+region+window (365-day windows)
+```
+
+**Gold cumulative schema:**
 
 | Column | Type | Description |
 |---|---|---|
-| `window` | struct{start, end} | Time window |
 | `author` | string | Wikimedia Commons username |
 | `region_name` | string | ADM1 region name (e.g. "Kyiv Oblast") |
 | `monuments_pictured` | long | Approx. distinct monuments photographed |
 
-**Output schema (cumulative):** same but without `window`.
+**Gold windowed schema:** same but with an additional `window` struct `{start, end}`.
 
 ---
 
@@ -235,7 +216,7 @@ source .venv/bin/activate
 pytest tests/ -v
 ```
 
-Expected output: **31 tests passed**.
+Expected output: **35 tests passed**.
 
 Run a single test file:
 
@@ -243,12 +224,7 @@ Run a single test file:
 pytest tests/test_monuments.py -v
 pytest tests/test_images.py -v
 pytest tests/test_common.py -v
-```
-
-Run a single test by name:
-
-```bash
-pytest tests/test_common.py::test_clean_municipality_removes_sel_abbreviation -v
+pytest tests/test_pipeline.py -v
 ```
 
 **Test files:**
@@ -258,10 +234,11 @@ pytest tests/test_common.py::test_clean_municipality_removes_sel_abbreviation -v
 | `tests/test_common.py` | `AdmLevel`/`Lang` enums, `clean_municipality_col`, `PopulatedPlaceRepo`, `KatotthKoatuuRepo` |
 | `tests/test_monuments.py` | `MonumentRepo` — KOATUU derivation, municipality cleaning, statistics methods |
 | `tests/test_images.py` | `WlmSchema`, `transform`, `cumulative_agg`, `windowed_agg` |
+| `tests/test_pipeline.py` | `run_monuments_pipeline`, `run_images_pipeline` — layer output smoke tests |
 
-`tests/test_common.py` and `tests/test_monuments.py` include integration tests that read
-the real CSV files from `data/`. `tests/test_images.py` uses only in-memory DataFrames
-(or a temporary directory for the streaming smoke test).
+`tests/test_common.py`, `tests/test_monuments.py`, and `tests/test_pipeline.py` include
+integration tests that read the real CSV files from `data/`. `tests/test_images.py` uses
+only in-memory DataFrames (or a temporary directory for the streaming smoke test).
 
 ---
 
@@ -279,7 +256,7 @@ Community Edition does not support Scala — all notebooks are Python.
 ### 3b. Upload data to a Unity Catalog volume
 
 The notebooks read CSV files from a Unity Catalog volume. Create a volume and upload
-the four source files before running any notebook.
+the source files before running any notebook.
 
 > DBFS (`dbfs:/FileStore/…`) is deprecated and unavailable in new Databricks accounts.
 > Use Unity Catalog volumes instead.
@@ -298,12 +275,12 @@ This gives you the volume path `/Volumes/main/default/wlm_data/`.
 
 1. Open the volume in Catalog Explorer.
 2. Click **Upload to this volume**.
-3. Upload each file, creating subdirectories (`monuments/`, `humdata/`, `katotth/`, `images/`) as needed.
+3. Upload each file, creating subdirectories as needed.
 
 | Local path | Volume destination |
 |---|---|
-| `data/wiki/monuments/wlm-ua-monuments.csv` | `/Volumes/main/default/wlm_data/monuments/wlm-ua-monuments.csv` |
-| `data/humdata/ukraine-populated-places.csv` | `/Volumes/main/default/wlm_data/humdata/ukraine-populated-places.csv` |
+| `data/raw/monuments.csv` (from fetch script) | `/Volumes/main/default/wlm_data/raw/monuments.csv` |
+| `data/raw/humdata.csv` (from convert script) | `/Volumes/main/default/wlm_data/raw/humdata.csv` |
 | `data/katotth/katotth_koatuu.csv` | `/Volumes/main/default/wlm_data/katotth/katotth_koatuu.csv` |
 | `data/images/wlm-UA-YYYY-images.csv` (one or more) | `/Volumes/main/default/wlm_data/images/` |
 
@@ -327,10 +304,10 @@ databricks configure        # enter your workspace URL and a personal access tok
 Copy files to the volume:
 
 ```bash
-databricks fs cp data/wiki/monuments/wlm-ua-monuments.csv \
-    dbfs:/Volumes/main/default/wlm_data/monuments/wlm-ua-monuments.csv --overwrite
-databricks fs cp data/humdata/ukraine-populated-places.csv \
-    dbfs:/Volumes/main/default/wlm_data/humdata/ukraine-populated-places.csv --overwrite
+databricks fs cp data/raw/monuments.csv \
+    dbfs:/Volumes/main/default/wlm_data/raw/monuments.csv --overwrite
+databricks fs cp data/raw/humdata.csv \
+    dbfs:/Volumes/main/default/wlm_data/raw/humdata.csv --overwrite
 databricks fs cp data/katotth/katotth_koatuu.csv \
     dbfs:/Volumes/main/default/wlm_data/katotth/katotth_koatuu.csv --overwrite
 # Copy one year of images as a starting point
@@ -366,63 +343,65 @@ After cloning, the workspace will contain:
 
 1. Open `notebooks/monuments.py` in the Databricks workspace.
 2. Attach it to your cluster (**Connect** button in the top bar).
-3. Optionally edit the config cell at the top to change volume paths:
+3. Optionally edit the `BASE` variable in the config cell to match your volume path:
 
    ```python
-   MONUMENTS_CSV  = "/Volumes/main/default/wlm_data/monuments/wlm-ua-monuments.csv"
-   HUMDATA_CSV    = "/Volumes/main/default/wlm_data/humdata/ukraine-populated-places.csv"
-   KATOTTH_CSV    = "/Volumes/main/default/wlm_data/katotth/katotth_koatuu.csv"
-   OUTPUT_DIR     = "/Volumes/main/default/wlm_data/output/monuments-with-cities"
+   BASE = "dbfs:/Volumes/workspace/default/wlm_data"
    ```
+
+   The notebook constructs all input and output paths from `BASE`:
+
+   | Layer | Path |
+   |---|---|
+   | Raw input | `{BASE}/raw/monuments.csv`, `{BASE}/raw/humdata.csv` |
+   | Bronze | `{BASE}/bronze/monuments` |
+   | Silver | `{BASE}/silver/monuments_cleaned`, `{BASE}/silver/monuments_with_cities` |
+   | Gold | `{BASE}/gold/monuments_full`, `{BASE}/gold/monuments_by_adm`, `{BASE}/gold/pictured_by_adm` |
 
 4. Click **Run All**.
 
-The notebook writes the joined dataset as parquet to `OUTPUT_DIR` and prints the
-pictured-monument percentage table for all 27 Ukrainian regions.
-
-Read the output back later:
+Read a gold layer back:
 
 ```python
-df = spark.read.parquet("/Volumes/main/default/wlm_data/output/monuments-with-cities")
+df = spark.read.format("delta").load(f"{BASE}/gold/monuments_full")
 df.show(10, truncate=False)
 ```
 
-### 3e. Run the images streaming notebook
+### 3e. Run the images batch notebook
 
 1. Open `notebooks/images_streaming.py`.
 2. Attach to your cluster.
-3. Edit the config cell as needed:
+3. Optionally edit the `BASE` variable in the config cell:
 
    ```python
-   INPUT_DIR      = "/Volumes/main/default/wlm_data/images"
-   HUMDATA_CSV    = "/Volumes/main/default/wlm_data/humdata/ukraine-populated-places.csv"
-   OUTPUT_DIR     = "/Volumes/main/default/wlm_data/output"
-   CHECKPOINT_DIR = "/Volumes/main/default/wlm_data/checkpoints"
-   WINDOW_DUR     = "1 hour"      # time window size for windowed aggregation
-   WATERMARK_DUR  = "10 minutes"  # late-data tolerance
-   RUN_CUMULATIVE = False         # set True to run the cumulative query instead
+   BASE = "dbfs:/Volumes/workspace/default/wlm_data"
    ```
+
+   The notebook constructs all paths from `BASE`:
+
+   | Layer | Path |
+   |---|---|
+   | Images input | `{BASE}/images` |
+   | Bronze | `{BASE}/bronze/images` |
+   | Silver | `{BASE}/silver/images` |
+   | Gold | `{BASE}/gold/images_cumulative`, `{BASE}/gold/images_windowed` |
 
 4. Click **Run All**.
 
-The notebook processes all CSV files currently in `INPUT_DIR` and terminates.
-To process newly added files, upload them to `/Volumes/main/default/wlm_data/images/` and
-re-run the notebook. Delete the checkpoint directory first if you want a clean rerun:
+The notebook processes all CSV files in `{BASE}/images` and writes Delta tables to the
+gold layer. To process newly uploaded images, add them to the `images/` directory and
+re-run the notebook.
+
+Read a gold layer back:
 
 ```python
-dbutils.fs.rm("/Volumes/main/default/wlm_data/checkpoints/windowed", recurse=True)
+df = spark.read.format("delta").load(f"{BASE}/gold/images_cumulative")
+df.show(truncate=False)
 ```
-
-**Output locations:**
-
-| Mode | Parquet output |
-|---|---|
-| Windowed (default) | `/Volumes/main/default/wlm_data/output/windowed/` |
-| Cumulative | `/Volumes/main/default/wlm_data/output/cumulative/` |
 
 ### 3f. Run the test suite on Databricks
 
-`notebooks/run_tests.py` installs pytest on the cluster and runs all 31 tests.
+`notebooks/run_tests.py` installs pytest on the cluster and runs all 35 tests.
 
 1. Open `notebooks/run_tests.py`.
 2. Attach to your cluster.
@@ -431,7 +410,7 @@ dbutils.fs.rm("/Volumes/main/default/wlm_data/checkpoints/windowed", recurse=Tru
 The notebook installs pytest (`%pip install pytest`), then calls `pytest.main()`
 and asserts that all tests pass. Test output appears in the cell results.
 
-> **Note:** The tests in `tests/test_common.py` and `tests/test_monuments.py` read
-> CSV files from the local `data/` directory. These files are present in the repo
-> and are available automatically when running through Databricks Repos — no extra
-> upload step is needed for the test data.
+> **Note:** The tests in `tests/test_common.py`, `tests/test_monuments.py`, and
+> `tests/test_pipeline.py` read CSV files from the local `data/` directory. These files
+> are present in the repo and are available automatically when running through Databricks
+> Repos — no extra upload step is needed for the test data.
